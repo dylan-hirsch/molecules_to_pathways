@@ -14,7 +14,17 @@ def _():
 
 
 @app.cell
-def _(np, u):
+def _():
+    COLORS = ['blue','orange','green','red','purple']
+    LABELS = ['A', 'B', 'C', 'X', 'Y']
+    FONTSIZE1 = 20
+    FONTSIZE2 = 15
+    FONTSIZE3 = 15
+    return COLORS, FONTSIZE1, FONTSIZE2, FONTSIZE3, LABELS
+
+
+@app.cell
+def _(np):
     def repressilator(X):
         x1 = X[0]
         x2 = X[1]
@@ -33,11 +43,11 @@ def _(np, u):
 
         beta = 3
     
-        dx4 = beta / (1 + x5**4) - x4
+        dx4 = .6 * beta / (1 + x5**4) - x4
         dx5 = beta / (1 + x4**4) - x5
         return np.array([dx4, dx5])
 
-    def repressilator_and_toggle_switch(X):
+    def repressilator_and_toggle_switch(X,u):
         x1 = X[0]
         x2 = X[1]
         x3 = X[2]
@@ -47,26 +57,48 @@ def _(np, u):
         alpha = 3
         beta = 3
 
+        #u = 1 if x2 < x3 else 0
+        #u = 0
+        #u = 0.5
+        #u = 1
+    
         dx1 = alpha / (1 + x3**4) - x1
         dx2 = alpha / (1 + x1**4) - x2
         dx3 = alpha / (1 + x2**4) - x3
-        dx4 = (u * x2 + (1 - u) * x3) * beta / (1 + x5**4) - x4
+        dx4 = .6 * beta * (u * x2 + (1 - u) * x3) / (1 + x5**4) - x4
         dx5 = beta / (1 + x4**4) - x5
     
         return np.array([dx1, dx2, dx3, dx4, dx5])
-    return repressilator_and_toggle_switch, toggle_switch
+    return repressilator, repressilator_and_toggle_switch, toggle_switch
 
 
 @app.cell
-def _(np, plt, repressilator_and_toggle_switch, solve_ivp):
+def _(
+    COLORS,
+    FONTSIZE1,
+    FONTSIZE2,
+    FONTSIZE3,
+    LABELS,
+    np,
+    plt,
+    repressilator,
+    solve_ivp,
+):
     def _():
 
+        fig, ax = plt.subplots(1,1, figsize = (6,5))
+    
         X0 = np.random.uniform(size = (3,))
-        tspan = [0,100]
-        sol = solve_ivp(lambda t,X: repressilator_and_toggle_switch(X), tspan, X0, max_step=.01)
+        tspan = [0,50]
+        sol = solve_ivp(lambda t,X: repressilator(X), tspan, X0, max_step=.01)
 
         for i in range(3):
-            plt.plot(sol.t,sol.y[i,:])
+            ax.plot(sol.t,sol.y[i,:], color = COLORS[i], label = LABELS[i])
+
+        ax.set_xlabel('Time (cell generations)', fontsize = FONTSIZE2)
+        ax.set_ylabel('Protein Concentration (Normalized)', fontsize = FONTSIZE2)
+        ax.set_title('Repressilator Dynamics', fontsize = FONTSIZE1)
+        ax.legend(fontsize = FONTSIZE3)
 
         plt.show()
 
@@ -75,16 +107,50 @@ def _(np, plt, repressilator_and_toggle_switch, solve_ivp):
 
 
 @app.cell
-def _(np, plt, solve_ivp, toggle_switch):
+def _(
+    COLORS,
+    FONTSIZE1,
+    FONTSIZE2,
+    FONTSIZE3,
+    LABELS,
+    np,
+    plt,
+    solve_ivp,
+    toggle_switch,
+):
     def _():
 
+        fig, axs = plt.subplots(1,2, figsize = (12,5))
+        tspan = [0,50]
+    
+        ax = axs[0]
+
+        ax.set_xlabel('Time (cell generations)', fontsize = FONTSIZE2)
+        ax.set_ylabel('Protein Concentration (Normalized)', fontsize = FONTSIZE2)
+        ax.set_title('Toggle Switch (X starts high)', fontsize = FONTSIZE1)
+    
         X0 = np.array([1,0])
-        tspan = [0,100]
         sol = solve_ivp(lambda t,X: toggle_switch(X), tspan, X0, max_step=.01)
 
         for i in range(2):
-            plt.plot(sol.t,sol.y[i,:])
+            ax.plot(sol.t,sol.y[i,:], color = COLORS[i+3], label = LABELS[i+3])
 
+        ax.legend(fontsize = FONTSIZE3)
+    
+        ax = axs[1]
+
+        ax.set_xlabel('Time (cell generations)', fontsize = FONTSIZE2)
+        ax.set_ylabel('Protein Concentration (Normalized)', fontsize = FONTSIZE2)
+        ax.set_title('Toggle Switch (Y starts high)', fontsize = FONTSIZE1)
+
+        X0 = np.array([0,1])
+        sol = solve_ivp(lambda t,X: toggle_switch(X), tspan, X0, max_step=.01)
+
+        for i in range(2):
+            ax.plot(sol.t,sol.y[i,:], color = COLORS[i+3], label = LABELS[i+3])
+
+        ax.legend(fontsize = FONTSIZE3)
+    
         plt.show()
 
     _()
@@ -92,16 +158,77 @@ def _(np, plt, solve_ivp, toggle_switch):
 
 
 @app.cell
-def _(np, plt, solve_ivp, toggle_switch):
+def _(
+    COLORS,
+    FONTSIZE1,
+    FONTSIZE2,
+    FONTSIZE3,
+    LABELS,
+    np,
+    plt,
+    repressilator_and_toggle_switch,
+    solve_ivp,
+):
     def _():
 
-        X0 = np.array([0,0,0,1,0])
-        tspan = [0,100]
-        sol = solve_ivp(lambda t,X: toggle_switch(X), tspan, X0, max_step=.01)
+        fig, axs = plt.subplots(1,3, figsize = (18,5))
+        tspan = [0,50]
 
-        for i in range(2):
-            plt.plot(sol.t,sol.y[i,:])
+        us = [0,.5,1]
 
+        for j in range(3):
+    
+            ax = axs[j]
+        
+            X0 = np.concatenate([np.random.uniform(size = (3,)), np.array([1,0])])
+            tspan = [0,50]
+            sol = solve_ivp(lambda t,X: repressilator_and_toggle_switch(X, u = us[j]), tspan, X0, max_step=.01)
+    
+            for i in range(5):
+                ax.plot(sol.t,sol.y[i,:], color = COLORS[i], label = LABELS[i])
+    
+            ax.set_xlabel('Time (cell generations)', fontsize = FONTSIZE2)
+            ax.set_ylabel('Protein Concentration (Normalized)', fontsize = FONTSIZE2)
+            ax.set_title('Repressiloggleator (u = ' + str(us[j]) + ')', fontsize = FONTSIZE1)
+    
+            ax.legend(fontsize = FONTSIZE3)
+    
+        plt.show()
+
+    _()
+    return
+
+
+@app.cell
+def _(
+    COLORS,
+    FONTSIZE1,
+    FONTSIZE2,
+    FONTSIZE3,
+    LABELS,
+    np,
+    plt,
+    repressilator_and_toggle_switch,
+    solve_ivp,
+):
+    def _():
+
+        fig, ax = plt.subplots(1,1, figsize = (6,5))
+        tspan = [0,50]
+    
+        X0 = np.concatenate([np.random.uniform(size = (3,)), np.array([1,0])])
+        tspan = [0,50]
+        sol = solve_ivp(lambda t,X: repressilator_and_toggle_switch(X, u = 1 if X[1] < X[2] else 0), tspan, X0, max_step=.01)
+
+        for i in range(5):
+            ax.plot(sol.t,sol.y[i,:], color = COLORS[i], label = LABELS[i])
+
+        ax.set_xlabel('Time (cell generations)', fontsize = FONTSIZE2)
+        ax.set_ylabel('Protein Concentration (Normalized)', fontsize = FONTSIZE2)
+        ax.set_title('Repressiloggleator (u = [B < C])', fontsize = FONTSIZE1)
+
+        ax.legend(fontsize = FONTSIZE3)
+    
         plt.show()
 
     _()
