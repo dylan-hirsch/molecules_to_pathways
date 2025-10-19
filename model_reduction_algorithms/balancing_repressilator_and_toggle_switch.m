@@ -20,3 +20,20 @@ Arb = Trinv * A * Tr;
 Brb = Trinv * B;
 Crb = C * Tr;
 Drb = D;
+
+function [y] = mm(x, K, n)
+    y = 1 / (1 + (x/K)^n);
+end
+
+function [dy] = mm_derivative(x, K, n)
+    dy = n * x^(n-1) / K^n / (1 + (x/K)^n)^2;
+end
+
+function [] = represillator_root(x, K, n)
+    
+end
+
+function [] = toggle_root(x, K, n)
+
+end
+
