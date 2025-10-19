@@ -1,9 +1,29 @@
 r = 3; % size of reduced basis
 
-A = [-1 0 0 ; 1 -1 0; 0 1 -1];
-B = [1 .1 0 0; 0 0 .1 0; 0 0 0 .1];
-C = [0 0 1];
+K1 = .25;
+n1 = 4;
+K2 = .25;
+n2 = 2;
+
+%% Get relevant roots
+
+x_represillator = fzero(@(x) represillator_root(x,K1,n1), 1);
+x_toggle = fzero(@(x) toggle_root(x,K2,n2), 1);
+
+%% Generate system matrices
+
+a = mm(x_represillator, K1, n1);
+b = mm(x_toggle, K2, n2);
+
+A11 = [-1 0 a ; a -1 0; 0 a -1];
+A22 = [-1 b; b -1];
+
+A = [A11, zeros(3,2); zeros(2,3), A22];
+B = [0; 0; 0; a; a];
+C = [0 0 0 0 1];
 D = 0;
+
+%% Do balanced truncation
 
 R = lyapchol(A,B)';
 L = lyapchol(A',C')';
@@ -16,24 +36,28 @@ Vr = V(:,1:r);
 Tr = R * Vr * pinv(sqrt(Sr));
 Trinv = pinv(sqrt(Sr)) * Ur' * L';
 
+%% Get new system matrices
+
 Arb = Trinv * A * Tr;
 Brb = Trinv * B;
 Crb = C * Tr;
 Drb = D;
 
+%% Functions
+
 function [y] = mm(x, K, n)
     y = 1 / (1 + (x/K)^n);
 end
 
-function [dy] = mm_derivative(x, K, n)
-    dy = n * x^(n-1) / K^n / (1 + (x/K)^n)^2;
+%function [dy] = mm_derivative(x, K, n)
+%    dy = n * x^(n-1) / K^n / (1 + (x/K)^n)^2;
+%end
+
+function [y] = represillator_root(x, K, n)
+    y = x^(n+1) + K^n * x - K^n;
 end
 
-function [] = represillator_root(x, K, n)
-    
-end
-
-function [] = toggle_root(x, K, n)
-
+function [y] = toggle_root(x, K, n)
+    y = x^(n+1) + K^n * x - K^n;
 end
 
