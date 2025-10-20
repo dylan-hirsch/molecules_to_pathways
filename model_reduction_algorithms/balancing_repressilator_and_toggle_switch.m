@@ -1,4 +1,4 @@
-r = 3; % size of reduced basis
+r = 5; % size of reduced basis
 
 K1 = .25;
 n1 = 4;
@@ -12,14 +12,22 @@ x_toggle = fzero(@(x) toggle_root(x,K2,n2), 1);
 
 %% Generate system matrices
 
-a = mm(x_represillator, K1, n1);
-b = mm(x_toggle, K2, n2);
+a = mm_derivative(x_represillator, K1, n1);
+b = mm_derivative(x_toggle, K2, n2);
+c = mm(x_represillator, K1, n1);
 
-A11 = [-1 0 a ; a -1 0; 0 a -1];
+A11 = [-1 0 a; a -1 0; 0 a -1];
+[U,E] = eigs(A11);
+for i = 1:3
+    if real(E(i,i)) > 0
+        E(i,i) = -E(i,i);
+    end
+end
+A11 = U * E * pinv(U);
 A22 = [-1 b; b -1];
 
 A = [A11, zeros(3,2); zeros(2,3), A22];
-B = [0; 0; 0; a; a];
+B = [0; 0; 0; c; c];
 C = [0 0 0 0 1];
 D = 0;
 
@@ -49,15 +57,15 @@ function [y] = mm(x, K, n)
     y = 1 / (1 + (x/K)^n);
 end
 
-%function [dy] = mm_derivative(x, K, n)
-%    dy = n * x^(n-1) / K^n / (1 + (x/K)^n)^2;
-%end
+function [dy] = mm_derivative(x, K, n)
+    dy = - n * x^(n-1) / K^n / (1 + (x/K)^n)^2;
+end
 
 function [y] = represillator_root(x, K, n)
     y = x^(n+1) + K^n * x - K^n;
 end
 
 function [y] = toggle_root(x, K, n)
-    y = x^(n+1) + K^n * x - K^n;
+    y = K^n * (1 + (x / K)^n)^n * (1 - x) - x;
 end
 
