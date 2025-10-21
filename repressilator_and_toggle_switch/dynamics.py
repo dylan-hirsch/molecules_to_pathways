@@ -5,12 +5,13 @@ from hj_reachability import sets
 
 ## This is the dynamics file for a biomolecular circuit consisting of a repressilator and a toggle switch.
 ## The structure of the biological circuit is (x1 --| x2 --| x3 --| x1) and (x4--|x5--|x4)
+## There is also activation from x2 to x4 and x3 to x5
 
-T = jnp.array([[0.     , 0.    , -2.5820, 0.               , -1.8257],
-               [0.     , 0.    ,  1.2910,  2.2339 + 0.0977j, -1.8257],
-               [0.     , 0.    ,  1.2910, -2.2339 - 0.0977j, -1.8257],
-               [-0.2659, 4.7168,  0.    , 0.               , 0.],
-               [ 0.2659, 4.7168,  0.    , 0.               , 0.]])
+T = jnp.array([[0.     , 0.    , -2.5820, 0.     , -1.8257],
+               [0.     , 0.    ,  1.2910,  2.2339, -1.8257],
+               [0.     , 0.    ,  1.2910, -2.2339, -1.8257],
+               [-0.2659, 4.7168,  0.    , 0.     , 0.],
+               [ 0.2659, 4.7168,  0.    , 0.     , 0.]])
 Tinv = jnp.linalg.pinv(T)
 
 K1 = 0.25
@@ -28,14 +29,15 @@ n5 = 2.
 def mm(x, K, n):
     return 1. / (1. + (abs(x)/K)**n)
 
-## MAPK BT (Nonlinear)
-class mapk_nonlinear_bt(dynamics.ControlAndDisturbanceAffineDynamics):
+##  (Nonlinear) Reduced Model for the Toggle Switch and Repressilator 
+class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
 
     def __init__(self,
                  control_mode="min",
                  disturbance_mode="max",
                  control_space=None,
                  disturbance_space=None,
+                 rank=3,
                  uMax=1.,
                  uMin=0.,
                  dMax=1.05,
@@ -44,8 +46,9 @@ class mapk_nonlinear_bt(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
-        self.T = T
-        self.Tinv = Tinv
+        self.T = T[:,0:rank]
+        self.Tinv = Tinv[0:rank,:]
+        self.rank = rank
 
         if control_space is None:
             control_space = sets.Box(jnp.array([self.uMin]), jnp.array([self.uMax]))
@@ -55,7 +58,7 @@ class mapk_nonlinear_bt(dynamics.ControlAndDisturbanceAffineDynamics):
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
-        xstate = self.T @ state.reshape([2,1])
+        xstate = self.T @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -69,10 +72,10 @@ class mapk_nonlinear_bt(dynamics.ControlAndDisturbanceAffineDynamics):
                                     [mm(x5, K5, n5) - x4],
                                     [mm(x4, K4, n4) - x5]])
         
-        return fx.reshape([2])
+        return fx.reshape([self.rank])
 
     def control_jacobian(self, state, time):
-        xstate = self.T @ state.reshape([2,1])
+        xstate = self.T @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -89,7 +92,7 @@ class mapk_nonlinear_bt(dynamics.ControlAndDisturbanceAffineDynamics):
         return gu
 
     def disturbance_jacobian(self, state, time):
-        xstate = self.T @ state.reshape([2,1])
+        xstate = self.T @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
