@@ -50,7 +50,7 @@ def _(K1, K2, N1, N2, np):
         dx1 = 1 / (1 + (x3/K1)**N1) - x1
         dx2 = 1 / (1 + (x1/K1)**N1) - x2
         dx3 = 1 / (1 + (x2/K1)**N1) - x3
-    
+
         return np.array([dx1, dx2, dx3])
 
     def toggle_switch(X):
@@ -59,7 +59,7 @@ def _(K1, K2, N1, N2, np):
 
         dx4 = 1 / (1 + (x5/K2)**N2) - x4
         dx5 = 1 / (1 + (x4/K2)**N2) - x5
-    
+
         return np.array([dx4, dx5])
 
     def repressilator_and_toggle_switch(X,u):
