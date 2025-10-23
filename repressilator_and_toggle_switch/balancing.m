@@ -26,7 +26,7 @@ end
 A11 = U * E * pinv(U);
 A22 = [-1 b; b -1];
 
-A = [A11, zeros(3,2); zeros(2,3), A22];
+A = real([A11, zeros(3,2); zeros(2,3), A22]);
 B = [[0, 0, 0, c, c]', [.1, 0, 0, 0, 0]', ...
      [0, .1, 0, 0, 0]', [0, 0, .1, 0, 0]', ...
      [0, 0, 0, .1, 0]', [0, 0, 0, 0, .1]'];
@@ -37,8 +37,8 @@ D = 0;
 
 %% Do balanced truncation
 
-R = lyapchol(A,B)';
-L = lyapchol(A',C')';
+R = real(lyapchol(A,B)');
+L = real(lyapchol(A',C'))';
 
 [U,S,V] = svd(L' * R);
 Ur = U(:,1:r);

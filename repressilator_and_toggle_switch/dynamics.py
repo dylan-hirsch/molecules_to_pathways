@@ -12,7 +12,6 @@ T = jnp.array([[0.     , 0.    , -2.5820, 0.     , -1.8257],
                [0.     , 0.    ,  1.2910, -2.2339, -1.8257],
                [-0.2659, 4.7168,  0.    , 0.     , 0.],
                [ 0.2659, 4.7168,  0.    , 0.     , 0.]])
-Tinv = jnp.linalg.pinv(T)
 
 K1 = 0.25
 K2 = 0.25
@@ -33,6 +32,8 @@ def mm(x, K, n):
 class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
 
     def __init__(self,
+                 T,
+                 Tinv,
                  control_mode="min",
                  disturbance_mode="max",
                  control_space=None,
@@ -46,8 +47,10 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
-        self.T = T[:,0:rank]
-        self.Tinv = Tinv[0:rank,:]
+        self.T = jnp.asarray(T)
+        self.Tinv = jnp.asarray(Tinv) 
+        self.Tr = self.T[:,0:rank]
+        self.Tinvr = self.Tinv[0:rank,:]
         self.rank = rank
 
         if control_space is None:
@@ -58,7 +61,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
-        xstate = self.T @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -66,16 +69,16 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x4 = x4[0]
         x5 = x5[0]
 
-        fx = self.Tinv @ jnp.array([[mm(x3, K3, n3) - x1],
-                                    [mm(x1, K1, n1) - x2],
-                                    [mm(x2, K2, n2) - x3],
-                                    [mm(x5, K5, n5) - x4],
-                                    [mm(x4, K4, n4) - x5]])
+        fx = self.Tinvr @ jnp.array([[mm(x3, K3, n3) - x1],
+                                     [mm(x1, K1, n1) - x2],
+                                     [mm(x2, K2, n2) - x3],
+                                     [mm(x5, K5, n5) - x4],
+                                     [mm(x4, K4, n4) - x5]])
         
         return fx.reshape([self.rank])
 
     def control_jacobian(self, state, time):
-        xstate = self.T @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -83,16 +86,16 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x4 = x4[0]
         x5 = x5[0]
 
-        gu = self.Tinv @ jnp.array([[0.],
-                                    [0.],
-                                    [0.],
-                                    [mm(x2, K2, n2)],
-                                    [mm(x3, K3, n3)]])
+        gu = self.Tinvr @ jnp.array([[0.],
+                                     [0.],
+                                     [0.],
+                                     [mm(x2, K2, n2)],
+                                     [mm(x3, K3, n3)]])
         
         return gu
 
     def disturbance_jacobian(self, state, time):
-        xstate = self.T @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1])
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -100,7 +103,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x4 = x4[0]
         x5 = x5[0]
 
-        gd = self.Tinv @ jnp.array([[mm(x3, K3, n3), 0., 0., 0., 0.],
+        gd = self.Tinvr @ jnp.array([[mm(x3, K3, n3), 0., 0., 0., 0.],
                                     [0., mm(x1, K1, n1), 0., 0., 0.],
                                     [0., 0., mm(x2, K2, n2), 0., 0.],
                                     [0., 0., 0., mm(x5, K5, n5), 0.],
