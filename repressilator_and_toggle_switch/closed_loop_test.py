@@ -38,38 +38,31 @@ def _():
 
     COLORS = ["blue", "orange", "green", "red", "purple"]
     LABELS = ["A", "B", "C", "X", "Y"]
-    return COLORS, LABELS, dynamics, hj, jnp, np, ode, pickle, plt
+    return COLORS, LABELS, np, ode, pickle, plt
+
+
+@app.cell
+def _():
+    Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
+    ns = [4.0, 4.0, 4.0, 2.0, 2.0]
+    return
 
 
 @app.cell
 def _(pickle):
-    with open(
-        "/Users/dylanhirsch/Research/model_reduction/V_decoy.pkl", "rb"
-    ) as file:
-        V = pickle.load(file)
-    return (V,)
+    with open("/Users/dylanhirsch/Research/model_reduction/V.pkl", "rb") as file:
+        V, model, grid, times = pickle.load(file)
+    return V, grid, model, times
 
 
 @app.cell
-def _(dynamics, hj, jnp, np):
-    model = dynamics.reduced_model(rank=3)
-
-    t0 = -25
-    times = np.linspace(0.0, t0, 100)
-
-    T = dynamics.T[:, 0:3]
-    Tinv = dynamics.Tinv[0:3, :]
-    zmax = np.array([0.25, 0.25, 1])  # Tinv @ np.array([1.,1.,1.,1.,1.])
-    grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(jnp.minimum(-zmax, zmax), jnp.maximum(-zmax, zmax)),
-        (100, 100, 100),
-        periodic_dims=None,
-    )
-    return Tinv, grid, model, t0, times
+def _(np, times):
+    t0 = float(np.min(times))
+    return (t0,)
 
 
 @app.cell
-def _(Tinv, np):
+def _(np):
     def mm(x, K, n):
         return 1.0 / (1.0 + (abs(x) / K) ** n)
 
@@ -96,7 +89,7 @@ def _(Tinv, np):
         x5 = x[4]
 
         x = np.array(x).reshape([len(x)])
-        z = Tinv @ x
+        z = model.Tinvr @ x
 
         grad_value = grid.interpolate(grad_valuess[i], state=z)
 
@@ -128,19 +121,7 @@ def _(V, dx, grid, model, np, ode, t0, times):
 
 
 @app.cell
-def _(
-    COLORS,
-    LABELS,
-    Tinv,
-    grad_valuess,
-    grid,
-    model,
-    np,
-    plt,
-    sol,
-    t0,
-    times,
-):
+def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
     fig, axs = plt.subplots(2, 1, figsize=(7, 10))
 
     ##
@@ -160,7 +141,7 @@ def _(
     for i in range(len(sol.t)):
         t = sol.t[i]
         x = np.array(sol.y[:, i]).reshape([5])
-        z = Tinv @ x
+        z = model.Tinvr @ x
         j = np.argmin(np.abs(times - t))
         grad_value = grid.interpolate(grad_valuess[j], state=z)
         u = model.optimal_control(z, t, grad_value)[0]
@@ -175,6 +156,12 @@ def _(
     plt.savefig("/Users/dylanhirsch/Desktop/closed_loop.svg", bbox_inches="tight")
 
     plt.show()
+    return
+
+
+@app.cell
+def _(V, grid, times):
+    [grid.grad_values(V[i, ...]) for i in range(len(times))]
     return
 
 

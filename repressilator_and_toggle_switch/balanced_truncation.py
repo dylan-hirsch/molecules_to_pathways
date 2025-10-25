@@ -1,61 +1,47 @@
-import marimo
+import numpy as np
+from scipy.linalg import solve_continuous_lyapunov as solve_lyap
 
-__generated_with = "0.13.6"
-app = marimo.App(width="medium")
+def get_bt_transform(A, B, C):
+    """
+    Computes the transformation matrix T from balanced truncation, where the original system is
 
+    x' = A @ x + B @ u,
+    y = C @ x,
 
-@app.cell
-def _():
-    import marimo as mo
-    import numpy as np
-    from scipy.linalg import solve_continuous_lyapunov as solve_lyap
-    return np, solve_lyap
+    and the transformed "balanced" system corresponding to the change of variables x = Tz is
 
+    z' = (T^{-1} @ A @ T) @ x + (T^{-1} @ B) @ u,
+    y = (C @ T) @ x.
 
-@app.cell
-def _(np, solve_lyap):
-    def balanced_truncation(A, B, C):
-        """
-        Computes the transformation matrix T from balanced truncation, where the original system is
+    This function takes numpy arrays A,B,C as input and returns (T,T^{-1},S), where S is a vector of the Hankel singular values.
+    A must be Hurwitz, (A,B) must be controllable, and (A,C) must be observable.
+    Note that the controllability and observability gramians of the balanced system are equal and diagonal, and the diagonal of the
+    gramians is precisely S.
+    """
 
-        x' = A @ x + B @ u,
-        y = C @ x,
+    # Compute controllability and observability gramians of the original system
+    P = solve_lyap(A, -B @ B.T)
+    Q = solve_lyap(A.T, -C.T @ C)
 
-        and the transformed "balanced" system corresponding to the change of variables x = Tz is
+    # Cholesky factorize the controllability and observability grammians
+    R = np.linalg.cholesky(P)
+    L = np.linalg.cholesky(Q)
 
-        z' = (T^{-1} @ A @ T) @ x + (T^{-1} @ B) @ u,
-        y = (C @ T) @ x.
+    U, S, V = np.linalg.svd(L.T @ R)
 
-        This function takes numpy arrays A,B,C as input and returns (T,T^{-1},S), where S is a vector of the Hankel singular values.
-        A must be Hurwitz, (A,B) must be controllable, and (A,C) must be observable.
-        Note that the controllability and observability gramians of the balanced system are equal and diagonal, and the diagonal of the
-        gramians is precisely S.
-        """
+    # Compute the transformation matrix relating z and x, i.e. x = Tz, along with the inverse matrix Tinv
+    T = R @ V @ np.diag(np.sqrt(1 / S))
+    Tinv = np.diag(np.sqrt(1 / S)) @ U.T @ L.T
 
-        # Compute controllability and observability gramians of the original system
-        P = solve_lyap(A, -B @ B.T)
-        Q = solve_lyap(A.T, -C.T @ C)
+    return T, Tinv, S
 
-        # Cholesky factorize the controllability and observability grammians
-        R = np.linalg.cholesky(P)
-        L = np.linalg.cholesky(Q)
-
-        U, S, V = np.linalg.svd(L.T @ R)
-
-        # Compute the transformation matrix relating z and x, i.e. x = Tz, along with the inverse matrix Tinv
-        T = R @ V @ np.diag(np.sqrt(1 / S))
-        Tinv = np.diag(np.sqrt(1 / S)) @ U.T @ L.T
-
-        return T, Tinv, S
-
-
+def main():
     A = np.array([[-1, 1], [0, -1]])
     B = np.array([[0], [1]])
     C = np.array([[1, 0]])
-    T, Tinv, S = balanced_truncation(A, B, C)
+    T, Tinv, S = get_bt_transform(A, B, C)
     T @ Tinv, S
-    return
-
+    return 0
 
 if __name__ == "__main__":
-    app.run()
+    main()

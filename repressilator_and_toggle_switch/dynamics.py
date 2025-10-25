@@ -7,11 +7,11 @@ from hj_reachability import sets
 ## The structure of the biological circuit is (x1 --| x2 --| x3 --| x1) and (x4--|x5--|x4)
 ## There is also activation from x2 to x4 and x3 to x5
 
-T = jnp.array([[0.     , 0.    , -2.5820, 0.     , -1.8257],
-               [0.     , 0.    ,  1.2910,  2.2339, -1.8257],
-               [0.     , 0.    ,  1.2910, -2.2339, -1.8257],
-               [-0.2659, 4.7168,  0.    , 0.     , 0.],
-               [ 0.2659, 4.7168,  0.    , 0.     , 0.]])
+#T = jnp.array([[0.     , 0.    , -2.5820, 0.     , -1.8257],
+#               [0.     , 0.    ,  1.2910,  2.2339, -1.8257],
+#               [0.     , 0.    ,  1.2910, -2.2339, -1.8257],
+#               [-0.2659, 4.7168,  0.    , 0.     , 0.],
+#               [ 0.2659, 4.7168,  0.    , 0.     , 0.]])
 
 K1 = 0.25
 K2 = 0.25
@@ -34,6 +34,8 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
                  T,
                  Tinv,
+                 Ks,
+                 ns,
                  control_mode="min",
                  disturbance_mode="max",
                  control_space=None,
@@ -47,6 +49,8 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
+        self.Ks = Ks
+        self.ns = ns
         self.T = jnp.asarray(T)
         self.Tinv = jnp.asarray(Tinv) 
         self.Tr = self.T[:,0:rank]
@@ -69,6 +73,18 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x4 = x4[0]
         x5 = x5[0]
 
+        K1 = self.Ks[0]
+        K2 = self.Ks[1]
+        K3 = self.Ks[2]
+        K4 = self.Ks[3]
+        K5 = self.Ks[4]
+
+        n1 = self.ns[0]
+        n2 = self.ns[1]
+        n3 = self.ns[2]
+        n4 = self.ns[3]
+        n5 = self.ns[4]
+
         fx = self.Tinvr @ jnp.array([[mm(x3, K3, n3) - x1],
                                      [mm(x1, K1, n1) - x2],
                                      [mm(x2, K2, n2) - x3],
@@ -86,6 +102,18 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x4 = x4[0]
         x5 = x5[0]
 
+        K1 = self.Ks[0]
+        K2 = self.Ks[1]
+        K3 = self.Ks[2]
+        K4 = self.Ks[3]
+        K5 = self.Ks[4]
+
+        n1 = self.ns[0]
+        n2 = self.ns[1]
+        n3 = self.ns[2]
+        n4 = self.ns[3]
+        n5 = self.ns[4]
+
         gu = self.Tinvr @ jnp.array([[0.],
                                      [0.],
                                      [0.],
@@ -102,6 +130,18 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         x3 = x3[0]
         x4 = x4[0]
         x5 = x5[0]
+
+        K1 = self.Ks[0]
+        K2 = self.Ks[1]
+        K3 = self.Ks[2]
+        K4 = self.Ks[3]
+        K5 = self.Ks[4]
+
+        n1 = self.ns[0]
+        n2 = self.ns[1]
+        n3 = self.ns[2]
+        n4 = self.ns[3]
+        n5 = self.ns[4]
 
         gd = self.Tinvr @ jnp.array([[mm(x3, K3, n3), 0., 0., 0., 0.],
                                     [0., mm(x1, K1, n1), 0., 0., 0.],
