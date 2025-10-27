@@ -34,14 +34,3 @@ def get_bt_transform(A, B, C):
     Tinv = np.diag(np.sqrt(1 / S)) @ U.T @ L.T
 
     return T, Tinv, S
-
-def main():
-    A = np.array([[-1, 1], [0, -1]])
-    B = np.array([[0], [1]])
-    C = np.array([[1, 0]])
-    T, Tinv, S = get_bt_transform(A, B, C)
-    T @ Tinv, S
-    return 0
-
-if __name__ == "__main__":
-    main()
