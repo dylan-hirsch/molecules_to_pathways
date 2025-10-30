@@ -14,8 +14,11 @@ class model(dynamics.ControlAndDisturbanceAffineDynamics):
                  uMax=1.,
                  uMin=0.,
                  dMax=1.,
-                 dMin=1.):
-
+                 dMin=1.,
+                 gamma = 0,
+                 delta = .3):
+        self.gamma = gamma
+        self.delta = delta
         if control_space is None:
             control_space = sets.Box(jnp.array([uMin]), jnp.array([uMax]))
         if disturbance_space is None:
@@ -24,7 +27,7 @@ class model(dynamics.ControlAndDisturbanceAffineDynamics):
 
     def open_loop_dynamics(self, state, time):
         x1, x2, x3 = state
-        return jnp.array([.5 * x2**4 / (x2**4 + .5**4), - 2 * x2, x2 - .3 * x3])
+        return jnp.array([.5 * x2**4 / (x2**4 + .5**4) - self.gamma * x1, - 2 * x2, x2 - self.delta * x3])
 
     def control_jacobian(self, state, time):
 

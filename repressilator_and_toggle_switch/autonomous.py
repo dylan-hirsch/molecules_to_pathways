@@ -211,9 +211,7 @@ def _(
 
             ax.set_xlabel("Time (cell generations)", fontsize=FONTSIZE2)
             ax.set_ylabel("Protein Concentration (Normalized)", fontsize=FONTSIZE2)
-            ax.set_title(
-                "Repressiloggleator (u = " + str(us[j]) + ")", fontsize=FONTSIZE1
-            )
+            ax.set_title("u = " + str(us[j]), fontsize=FONTSIZE1)
 
             ax.legend(fontsize=FONTSIZE3)
             ax.set_ylim([-0.05, 2.05])
@@ -259,7 +257,7 @@ def _(
 
         ax.set_xlabel("Time (cell generations)", fontsize=FONTSIZE2)
         ax.set_ylabel("Protein Concentration (Normalized)", fontsize=FONTSIZE2)
-        ax.set_title("Repressiloggleator (u = [B > C])", fontsize=FONTSIZE1)
+        ax.set_title("u = [B > C]", fontsize=FONTSIZE1)
 
         ax.legend(fontsize=FONTSIZE3)
 
@@ -269,6 +267,11 @@ def _(
 
 
     _()
+    return
+
+
+@app.cell
+def _():
     return
 
 
