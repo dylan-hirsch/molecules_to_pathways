@@ -22,7 +22,6 @@ def _():
     import pandas as pd
 
     from scipy import integrate as ode
-    from scipy import signal
 
     import random
 
@@ -80,8 +79,6 @@ def _(np):
         n4 = 2.0
         n5 = 2.0
 
-        i = np.argmin(np.abs(times - t))
-
         x1 = x[0]
         x2 = x[1]
         x3 = x[2]
@@ -91,9 +88,12 @@ def _(np):
         x = np.array(x).reshape([len(x)])
         z = model.Tinvr @ x
 
-        grad_value = grid.interpolate(grad_valuess[i], state=z)
-
-        u = model.optimal_control(z, t, grad_value)[0]
+        if t < 0:
+            i = np.argmin(np.abs(times - t))
+            grad_value = grid.interpolate(grad_valuess[i], state=z)
+            u = model.optimal_control(z, t, grad_value)[0]
+        else:
+            u = 0
 
         dx1 = mm(x3, K3, n3) - x1
         dx2 = mm(x1, K1, n1) - x2
@@ -113,7 +113,7 @@ def _(V, dx, grid, model, np, ode, t0, times):
     x0 = np.array([0.1, 0.2, 0.15, 1.0, 0.0])
     sol = ode.solve_ivp(
         lambda t, x: dx(t, x, grad_valuess, grid, model, times),
-        [t0, 0],
+        [t0, 20],
         x0,
         max_step=0.1,
     )
@@ -139,12 +139,15 @@ def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
 
     us = []
     for i in range(len(sol.t)):
-        t = sol.t[i]
         x = np.array(sol.y[:, i]).reshape([5])
         z = model.Tinvr @ x
-        j = np.argmin(np.abs(times - t))
-        grad_value = grid.interpolate(grad_valuess[j], state=z)
-        u = model.optimal_control(z, t, grad_value)[0]
+        t = sol.t[i]
+        if t < 0:
+            j = np.argmin(np.abs(times - t))
+            grad_value = grid.interpolate(grad_valuess[j], state=z)
+            u = model.optimal_control(z, t, grad_value)[0]
+        else:
+            u = 0
         us.append(u)
 
     ax.plot(sol.t + abs(t0), us)
@@ -156,12 +159,6 @@ def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
     plt.savefig("/Users/dylanhirsch/Desktop/closed_loop.svg", bbox_inches="tight")
 
     plt.show()
-    return
-
-
-@app.cell
-def _(V, grid, times):
-    [grid.grad_values(V[i, ...]) for i in range(len(times))]
     return
 
 

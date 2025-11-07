@@ -17,12 +17,13 @@ def _():
     import plotly.graph_objects as go
     import dynamics
 
-    from balanced_truncation import get_bt_transform
+    from balanced_truncation import get_lqg_bt_transform
 
     import hj_reachability as hj
 
     from scipy import integrate as ode
     from scipy.optimize import root_scalar
+    import control as ct
 
     import random
 
@@ -33,18 +34,19 @@ def _():
     plt.rcParams["mathtext.fontset"] = "cm"
     font = {"size": 15}
     plt.rc("font", **font)
-    return dynamics, get_bt_transform, hj, jnp, np, root_scalar
+    return dynamics, get_lqg_bt_transform, hj, np, root_scalar
 
 
 @app.cell
 def _():
+    rank = 5
     Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
     ns = [4.0, 4.0, 4.0, 2.0, 2.0]
-    return Ks, ns
+    return Ks, ns, rank
 
 
 @app.cell
-def _(Ks, get_bt_transform, np, ns, root_scalar):
+def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
     def mm(x, K, n):
         return 1 / (1 + (x / K) ** n)
 
@@ -72,11 +74,6 @@ def _(Ks, get_bt_transform, np, ns, root_scalar):
     c = mm(x_represillator, Ks[0], ns[0])
 
     A11 = np.array([[-1, 0, a], [a, -1, 0], [0, a, -1]])
-    E, U = np.linalg.eig(A11)
-    for i in range(3):
-        if np.real(E[i]) > 0:
-            E[i] = -E[i]
-    A11 = np.real(U @ np.diag(E) @ np.linalg.pinv(U))
     A22 = np.real(np.array([[-1, b], [b, -1]]))
 
     A = np.block([[A11, np.zeros((3, 2))], [np.zeros((2, 3)), A22]])
@@ -97,40 +94,61 @@ def _(Ks, get_bt_transform, np, ns, root_scalar):
             [0, 0, 0, -1 / 2, 1 / 2],
             [0, 1.0, 0, 0, 0],
             [0, 0, 1.0, 0, 0],
-            [0.01, 0, 0, 0, 0],
-            [0, 0, 0, 0.01, 0],
-            [0, 0, 0, 0, 0.01],
+            [0.1, 0, 0, 0, 0],
+            [0, 0, 0, 0.1, 0],
+            [0, 0, 0, 0, 0.1],
         ]
     )
 
-    T, Tinv, S = get_bt_transform(A, B, C)
-    T
-    return T, Tinv
+    T0, Tinv0, S0, error = get_lqg_bt_transform(A, B, C)
+    print(error)
+    np.linalg.norm(T0, axis=1)
+    return
 
 
 @app.cell
-def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns):
-    model = dynamics.reduced_model(rank=3, Ks=Ks, ns=ns, T=T, Tinv=T)
+def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
+    model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=T)
 
-    Tr = T[:, 0:3]
-    Tinvr = Tinv[0:3, :]
-    zmax = np.array([5, 5, 3])
+
+    Tr = T[:, 0:rank]
+    Tinvr = Tinv[0:rank, :]
+    zmax = Tinvr @ (np.array([1, 1, 1, 1, 1]).reshape([5, 1]))
+    zmax = zmax.reshape((5,))
+    # zmax = np.array([10, 10, 10, 0.1, 0.1])
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(jnp.minimum(-zmax, zmax), jnp.maximum(-zmax, zmax)),
-        (50, 50, 50),
+        hj.sets.Box(-np.abs(zmax), np.abs(zmax)),
+        (10, 10, 10, 10, 10),
         periodic_dims=None,
     )
 
     xgrid = Tr @ grid.states[..., None]
     xgrid = xgrid[..., 0]
     l = xgrid[..., 3] - xgrid[..., 4]
-    return grid, l, model
+    return Tr, grid, l, model, zmax
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(Tr, zmax):
+    Tr @ zmax.reshape([5, 1])
+    return
+
+
+@app.cell
+def _(zmax):
+    zmax
+    return
 
 
 @app.cell
 def _(grid, hj, l, model, np):
-    t0 = -25
+    t0 = -15
     times = np.linspace(0.0, t0, 100)
     solver_settings = hj.SolverSettings.with_accuracy("medium")
     V = hj.solve(solver_settings, model, grid, times, l)
@@ -143,6 +161,11 @@ def _(V, grid, model, times):
 
     with open("/Users/dylanhirsch/Research/model_reduction/V.pkl", "wb") as file:
         pickle.dump((V, model, grid, times), file)
+    return
+
+
+@app.cell
+def _():
     return
 
 

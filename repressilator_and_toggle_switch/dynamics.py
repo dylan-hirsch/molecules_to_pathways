@@ -43,8 +43,8 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
                  rank=3,
                  uMax=1.,
                  uMin=0.,
-                 dMax=1.05,
-                 dMin=.95):
+                 dMax=1.00,
+                 dMin=1.00):
         self.uMax = uMax
         self.uMin = uMin
         self.dMax = dMax

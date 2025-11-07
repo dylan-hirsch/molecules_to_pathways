@@ -1,5 +1,8 @@
 import numpy as np
+import warnings
 from scipy.linalg import solve_continuous_lyapunov as solve_lyap
+from scipy.linalg import solve_continuous_are as solve_are
+from scipy.linalg import solve_triangular
 
 def get_bt_transform(A, B, C):
     """
@@ -34,3 +37,45 @@ def get_bt_transform(A, B, C):
     Tinv = np.diag(np.sqrt(1 / S)) @ U.T @ L.T
 
     return T, Tinv, S
+
+def get_lqg_bt_transform(A, B, C):
+
+    """
+    See "A New Set of invariants for Linear Systems -- Application to Reduced Order Compensator Design" by Jonckheere and Silverman (IEEE TAC, 1983).
+    This is the original paper on LQG balancing.
+    It is assumed (A,B) is controllable and (A,C) is observable.
+    """
+
+    # Compute solutions to algebraic ricatti equations
+    Rc = np.eye(B.shape[1])
+    Qc = C.T @ C
+    P = solve_are(A, B, Qc, Rc)
+
+    Ro = np.eye(C.shape[0])
+    Qo = B @ B.T
+    Pi = solve_are(A.T, C.T, Qo, Ro)
+
+    Rx = np.linalg.cholesky(P, upper = True)
+    Ry = np.linalg.cholesky(Pi, upper = False)
+    
+    U,S,VT = np.linalg.svd(Rx @ Ry)
+
+    T = Ry @ VT.T @ np.diag(1 / np.sqrt(S))
+    Tinv = np.diag(1 / np.sqrt(S)) @ U.T @ Rx
+
+    error = np.linalg.norm(T.T @ P @ T - Tinv @ Pi @ Tinv.T, 2)
+
+    return T, Tinv, S, error
+
+def get_minimal_realization(A, B, C):
+    pass
+
+def main():
+    A = np.array([[1,1],[0,1]])
+    B = np.array([[0],[1]]).reshape([2,1])
+    C = np.array([[1, 0]]).reshape([1,2])
+    T, Tinv, S, error = get_lqg_bt_transform(A, B, C)
+    print(error)
+
+if __name__ == "__main__":
+    main()
