@@ -39,7 +39,7 @@ def _():
 
 @app.cell
 def _():
-    rank = 5
+    rank = 4
     Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
     ns = [4.0, 4.0, 4.0, 2.0, 2.0]
     return Ks, ns, rank
@@ -92,8 +92,8 @@ def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
     C = np.array(
         [
             [0, 0, 0, -1 / 2, 1 / 2],
-            [0, 1.0, 0, 0, 0],
-            [0, 0, 1.0, 0, 0],
+            [0, 1.0, -1.0, 0, 0],
+            [0, 0, 0.1, 0, 0],
             [0.1, 0, 0, 0, 0],
             [0, 0, 0, 0.1, 0],
             [0, 0, 0, 0, 0.1],
@@ -101,54 +101,35 @@ def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
     )
 
     T0, Tinv0, S0, error = get_lqg_bt_transform(A, B, C)
-    print(error)
-    np.linalg.norm(T0, axis=1)
-    return
+    T, _, _ = np.linalg.svd(T0)
+    Tinv = T.T
+    return T, Tinv
 
 
 @app.cell
 def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
-    model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=T)
+    model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=Tinv)
 
 
     Tr = T[:, 0:rank]
     Tinvr = Tinv[0:rank, :]
-    zmax = Tinvr @ (np.array([1, 1, 1, 1, 1]).reshape([5, 1]))
-    zmax = zmax.reshape((5,))
-    # zmax = np.array([10, 10, 10, 0.1, 0.1])
+    zmax = np.ones((rank,))
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
         hj.sets.Box(-np.abs(zmax), np.abs(zmax)),
-        (10, 10, 10, 10, 10),
+        (21, 21, 21, 21),
         periodic_dims=None,
     )
 
     xgrid = Tr @ grid.states[..., None]
     xgrid = xgrid[..., 0]
     l = xgrid[..., 3] - xgrid[..., 4]
-    return Tr, grid, l, model, zmax
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _(Tr, zmax):
-    Tr @ zmax.reshape([5, 1])
-    return
-
-
-@app.cell
-def _(zmax):
-    zmax
-    return
+    return grid, l, model
 
 
 @app.cell
 def _(grid, hj, l, model, np):
-    t0 = -15
+    t0 = -10
     times = np.linspace(0.0, t0, 100)
     solver_settings = hj.SolverSettings.with_accuracy("medium")
     V = hj.solve(solver_settings, model, grid, times, l)
@@ -161,11 +142,6 @@ def _(V, grid, model, times):
 
     with open("/Users/dylanhirsch/Research/model_reduction/V.pkl", "wb") as file:
         pickle.dump((V, model, grid, times), file)
-    return
-
-
-@app.cell
-def _():
     return
 
 
