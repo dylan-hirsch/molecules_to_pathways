@@ -17,7 +17,7 @@ def _():
     import plotly.graph_objects as go
     import dynamics
 
-    from balanced_truncation import get_lqg_bt_transform
+    from balanced_truncation import get_lqg_bt_transform, get_minimal_realization
 
     import hj_reachability as hj
 
@@ -39,7 +39,7 @@ def _():
 
 @app.cell
 def _():
-    rank = 4
+    rank = 5
     Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
     ns = [4.0, 4.0, 4.0, 2.0, 2.0]
     return Ks, ns, rank
@@ -81,28 +81,37 @@ def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
     B = np.array(
         [
             [0, 0, 0, c, c],
-            [0.1, 0, 0, 0, 0],
-            [0, 0.1, 0, 0, 0],
-            [0, 0, 0.1, 0, 0],
-            [0, 0, 0, 0.1, 0],
-            [0, 0, 0, 0, 0.1],
+            [0.01, 0, 0, 0, 0],
+            [0, 0.01, 0, 0, 0],
+            [0, 0, 0.01, 0, 0],
+            [0, 0, 0, 0.01, 0],
+            [0, 0, 0, 0, 0.01],
         ]
     ).T
 
     C = np.array(
         [
-            [0, 0, 0, -1 / 2, 1 / 2],
-            [0, 1.0, -1.0, 0, 0],
-            [0, 0, 0.1, 0, 0],
-            [0.1, 0, 0, 0, 0],
-            [0, 0, 0, 0.1, 0],
-            [0, 0, 0, 0, 0.1],
+            [0, 0, 0, 1.0, -1.0],
+            [0, 1.0, 0.0, 0, 0],
+            [0, 0.0, 1.0, 0, 0],
+            [0.01, 0, 0, 0, 0],
+            [0, 0.01, 0, 0, 0],
+            [0, 0, 0.01, 0, 0],
+            [0, 0, 0, 0.01, 0],
+            [0, 0, 0, 0, 0.01],
         ]
     )
 
-    T0, Tinv0, S0, error = get_lqg_bt_transform(A, B, C)
-    T, _, _ = np.linalg.svd(T0)
+    T_minreal = np.eye(5)  # get_minimal_realization(A, B, C)
+
+    T_balanced, _, _, error = get_lqg_bt_transform(
+        T_minreal.T @ A @ T_minreal, T_minreal.T @ B, C @ T_minreal
+    )
+    T, _ = np.linalg.qr(T_minreal @ T_balanced, mode="complete")
     Tinv = T.T
+
+    T = np.eye(5)
+    Tinv = np.eye(5)
     return T, Tinv
 
 
@@ -110,14 +119,14 @@ def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
 def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
     model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=Tinv)
 
-
     Tr = T[:, 0:rank]
     Tinvr = Tinv[0:rank, :]
+
     zmax = np.ones((rank,))
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(-np.abs(zmax), np.abs(zmax)),
-        (21, 21, 21, 21),
+        hj.sets.Box(0 * np.sqrt(5) * np.abs(zmax), 1.5 * np.abs(zmax)),
+        (21, 21, 21, 21, 21),
         periodic_dims=None,
     )
 
@@ -129,9 +138,9 @@ def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
 
 @app.cell
 def _(grid, hj, l, model, np):
-    t0 = -10
-    times = np.linspace(0.0, t0, 100)
-    solver_settings = hj.SolverSettings.with_accuracy("medium")
+    t0 = -5
+    times = np.linspace(0.0, t0, 21)
+    solver_settings = hj.SolverSettings.with_accuracy("very_high")
     V = hj.solve(solver_settings, model, grid, times, l)
     return V, times
 
@@ -140,8 +149,16 @@ def _(grid, hj, l, model, np):
 def _(V, grid, model, times):
     import pickle
 
-    with open("/Users/dylanhirsch/Research/model_reduction/V.pkl", "wb") as file:
+    with open(
+        "/Users/dylanhirsch/Research/model_reduction/V_doubled_nonnegative.pkl",
+        "wb",
+    ) as file:
         pickle.dump((V, model, grid, times), file)
+    return
+
+
+@app.cell
+def _():
     return
 
 

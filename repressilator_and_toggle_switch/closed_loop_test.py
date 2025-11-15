@@ -49,7 +49,9 @@ def _():
 
 @app.cell
 def _(pickle):
-    with open("/Users/dylanhirsch/Research/model_reduction/V.pkl", "rb") as file:
+    with open(
+        "/Users/dylanhirsch/Research/model_reduction/V_large_unrotated_negative.pkl", "rb"
+    ) as file:
         V, model, grid, times = pickle.load(file)
     return V, grid, model, times
 
@@ -57,6 +59,7 @@ def _(pickle):
 @app.cell
 def _(np, times):
     t0 = float(np.min(times))
+    print(t0)
     return (t0,)
 
 
@@ -110,7 +113,8 @@ def _(np):
 @app.cell
 def _(V, dx, grid, model, np, ode, t0, times):
     grad_valuess = [grid.grad_values(V[i, ...]) for i in range(len(times))]
-    x0 = np.array([0.1, 0.2, 0.15, 1.0, 0.0])
+    x0 = np.array([0.2, 0.2, 0.6, 1.0, 0.0])
+    # x0 = .1 * np.random.uniform(size = (5,))
     sol = ode.solve_ivp(
         lambda t, x: dx(t, x, grad_valuess, grid, model, times),
         [t0, 20],
@@ -121,8 +125,8 @@ def _(V, dx, grid, model, np, ode, t0, times):
 
 
 @app.cell
-def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
-    fig, axs = plt.subplots(2, 1, figsize=(7, 10))
+def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
+    fig, axs = plt.subplots(3, 1, figsize=(7, 12))
 
     ##
     ax = axs[0]
@@ -138,6 +142,7 @@ def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
     ax = axs[1]
 
     us = []
+    vals = []
     for i in range(len(sol.t)):
         x = np.array(sol.y[:, i]).reshape([5])
         z = model.Tinvr @ x
@@ -145,20 +150,39 @@ def _(COLORS, LABELS, grad_valuess, grid, model, np, plt, sol, t0, times):
         if t < 0:
             j = np.argmin(np.abs(times - t))
             grad_value = grid.interpolate(grad_valuess[j], state=z)
+            val = grid.interpolate(V[j], state=z)
             u = model.optimal_control(z, t, grad_value)[0]
         else:
             u = 0
+            val = 0
         us.append(u)
+        vals.append(val)
 
     ax.plot(sol.t + abs(t0), us)
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Control Action", fontsize=15)
     ax.set_title(r"$u = \pi_r(x,t)$", fontsize=20)
 
+    ##
+    ax = axs[2]
+    ax.plot(sol.t + abs(t0), vals)
+    ax.set_ylim([-1,1])
+    ax.set_xlabel(r"$t$", fontsize=20)
+    ax.set_ylabel("Value", fontsize=15)
+    ax.set_title(r"$V(x,t)$", fontsize=20)
+
     plt.tight_layout()
-    plt.savefig("/Users/dylanhirsch/Desktop/closed_loop.svg", bbox_inches="tight")
+    plt.savefig(
+        "/Users/dylanhirsch/Desktop/closed_loop_large_unrotated_negative.png",
+        bbox_inches="tight",
+    )
 
     plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 
