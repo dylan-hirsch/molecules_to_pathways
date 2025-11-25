@@ -50,7 +50,8 @@ def _():
 @app.cell
 def _(pickle):
     with open(
-        "/Users/dylanhirsch/Research/model_reduction/V_large_unrotated_negative.pkl", "rb"
+        "/Users/dylanhirsch/Research/molecules_to_pathways/repressilator_and_toggle_switch/data/V_ROM3.pkl",
+        "rb",
     ) as file:
         V, model, grid, times = pickle.load(file)
     return V, grid, model, times
@@ -59,7 +60,6 @@ def _(pickle):
 @app.cell
 def _(np, times):
     t0 = float(np.min(times))
-    print(t0)
     return (t0,)
 
 
@@ -114,7 +114,7 @@ def _(np):
 def _(V, dx, grid, model, np, ode, t0, times):
     grad_valuess = [grid.grad_values(V[i, ...]) for i in range(len(times))]
     x0 = np.array([0.2, 0.2, 0.6, 1.0, 0.0])
-    # x0 = .1 * np.random.uniform(size = (5,))
+
     sol = ode.solve_ivp(
         lambda t, x: dx(t, x, grad_valuess, grid, model, times),
         [t0, 20],
@@ -131,11 +131,13 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     ##
     ax = axs[0]
 
+    r = model.Tinvr.shape[0]
+
     for _ in range(5):
         ax.plot(sol.t + abs(t0), sol.y[_, :], color=COLORS[_], label=LABELS[_])
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Protein Concentration (Normalized)", fontsize=15)
-    ax.set_title(r"FOM under $u = \pi_r(x,t)$", fontsize=20)
+    ax.set_title(r"FOM under $u = \pi_r(x,t)$; $r = " + str(r) + "$", fontsize=20)
     ax.legend(fontsize=15)
 
     ##
@@ -166,23 +168,18 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     ##
     ax = axs[2]
     ax.plot(sol.t + abs(t0), vals)
-    ax.set_ylim([-1,1])
+    ax.set_ylim([-1, 1])
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Value", fontsize=15)
-    ax.set_title(r"$V(x,t)$", fontsize=20)
+    ax.set_title(r"$V_r(T_r^\top x,t)$", fontsize=20)
 
     plt.tight_layout()
     plt.savefig(
-        "/Users/dylanhirsch/Desktop/closed_loop_large_unrotated_negative.png",
+        "/Users/dylanhirsch/Desktop/ROM_3.png",
         bbox_inches="tight",
     )
 
     plt.show()
-    return
-
-
-@app.cell
-def _():
     return
 
 

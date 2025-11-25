@@ -34,19 +34,27 @@ def _():
     plt.rcParams["mathtext.fontset"] = "cm"
     font = {"size": 15}
     plt.rc("font", **font)
-    return dynamics, get_lqg_bt_transform, hj, np, root_scalar
+    return (
+        dynamics,
+        get_lqg_bt_transform,
+        get_minimal_realization,
+        hj,
+        jnp,
+        np,
+        root_scalar,
+    )
 
 
 @app.cell
 def _():
-    rank = 5
+    rank = 2
     Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
     ns = [4.0, 4.0, 4.0, 2.0, 2.0]
     return Ks, ns, rank
 
 
 @app.cell
-def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
+def _(Ks, get_lqg_bt_transform, get_minimal_realization, np, ns, root_scalar):
     def mm(x, K, n):
         return 1 / (1 + (x / K) ** n)
 
@@ -92,31 +100,24 @@ def _(Ks, get_lqg_bt_transform, np, ns, root_scalar):
     C = np.array(
         [
             [0, 0, 0, 1.0, -1.0],
+            [1.0, 0.0, 0.0, 0, 0],
             [0, 1.0, 0.0, 0, 0],
-            [0, 0.0, 1.0, 0, 0],
-            [0.01, 0, 0, 0, 0],
-            [0, 0.01, 0, 0, 0],
-            [0, 0, 0.01, 0, 0],
-            [0, 0, 0, 0.01, 0],
-            [0, 0, 0, 0, 0.01],
+            [0, 0, 1.0, 0, 0],
         ]
     )
 
-    T_minreal = np.eye(5)  # get_minimal_realization(A, B, C)
+    T_minreal = get_minimal_realization(A, B, C)
 
     T_balanced, _, _, error = get_lqg_bt_transform(
         T_minreal.T @ A @ T_minreal, T_minreal.T @ B, C @ T_minreal
     )
     T, _ = np.linalg.qr(T_minreal @ T_balanced, mode="complete")
     Tinv = T.T
-
-    T = np.eye(5)
-    Tinv = np.eye(5)
     return T, Tinv
 
 
 @app.cell
-def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
+def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns, rank):
     model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=Tinv)
 
     Tr = T[:, 0:rank]
@@ -125,13 +126,14 @@ def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
     zmax = np.ones((rank,))
 
     grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        hj.sets.Box(0 * np.sqrt(5) * np.abs(zmax), 1.5 * np.abs(zmax)),
-        (21, 21, 21, 21, 21),
+        hj.sets.Box(
+            -1.5 * np.sqrt(5) * np.abs(zmax), 1.5 * np.sqrt(5) * np.abs(zmax)
+        ),
+        (1001, 1001),
         periodic_dims=None,
     )
 
-    xgrid = Tr @ grid.states[..., None]
-    xgrid = xgrid[..., 0]
+    xgrid = jnp.einsum("ij,...j -> ...i", Tr, grid.states)
     l = xgrid[..., 3] - xgrid[..., 4]
     return grid, l, model
 
@@ -139,7 +141,7 @@ def _(Ks, T, Tinv, dynamics, hj, np, ns, rank):
 @app.cell
 def _(grid, hj, l, model, np):
     t0 = -5
-    times = np.linspace(0.0, t0, 21)
+    times = np.linspace(0.0, t0, 1001)
     solver_settings = hj.SolverSettings.with_accuracy("very_high")
     V = hj.solve(solver_settings, model, grid, times, l)
     return V, times
@@ -150,15 +152,10 @@ def _(V, grid, model, times):
     import pickle
 
     with open(
-        "/Users/dylanhirsch/Research/model_reduction/V_doubled_nonnegative.pkl",
+        "/Users/dylanhirsch/Research/molecules_to_pathways/repressilator_and_toggle_switch/data/V_ROM2.pkl",
         "wb",
     ) as file:
         pickle.dump((V, model, grid, times), file)
-    return
-
-
-@app.cell
-def _():
     return
 
 

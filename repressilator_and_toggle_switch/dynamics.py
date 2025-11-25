@@ -26,7 +26,7 @@ n4 = 2.
 n5 = 2.
 
 def mm(x, K, n):
-    return jnp.sign(x) * 1. / (1. + (jnp.abs(x)/K)**n)
+    return 1. / (1. + (jnp.abs(x)/K)**n)
 
 ##  (Nonlinear) Reduced Model for the Toggle Switch and Repressilator 
 class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
@@ -43,8 +43,8 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
                  rank=3,
                  uMax=1.,
                  uMin=0.,
-                 dMax=1.00,
-                 dMin=1.00):
+                 dMax=0.00,
+                 dMin=0.00):
         self.uMax = uMax
         self.uMin = uMin
         self.dMax = dMax
