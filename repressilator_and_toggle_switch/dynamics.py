@@ -34,6 +34,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(self,
                  T,
                  Tinv,
+                 x_star,
                  Ks,
                  ns,
                  control_mode="min",
@@ -49,6 +50,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
+        self.x_star = x_star
         self.Ks = Ks
         self.ns = ns
         self.T = jnp.asarray(T)
@@ -65,7 +67,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
-        xstate = self.Tr @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1]) + self.x_star
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -85,16 +87,16 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         n4 = self.ns[3]
         n5 = self.ns[4]
 
-        fx = self.Tinvr @ jnp.array([[mm(x3, K3, n3) - x1],
+        fz = self.Tinvr @ jnp.array([[mm(x3, K3, n3) - x1],
                                      [mm(x1, K1, n1) - x2],
                                      [mm(x2, K2, n2) - x3],
                                      [mm(x5, K5, n5) - x4],
                                      [mm(x4, K4, n4) - x5]])
         
-        return fx.reshape([self.rank])
+        return fz.reshape([self.rank])
 
     def control_jacobian(self, state, time):
-        xstate = self.Tr @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1]) + self.x_star
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]
@@ -123,7 +125,7 @@ class reduced_model(dynamics.ControlAndDisturbanceAffineDynamics):
         return gu
 
     def disturbance_jacobian(self, state, time):
-        xstate = self.Tr @ state.reshape([self.rank,1])
+        xstate = self.Tr @ state.reshape([self.rank,1]) + self.x_star
         x1, x2, x3, x4, x5 = xstate
         x1 = x1[0]
         x2 = x2[0]

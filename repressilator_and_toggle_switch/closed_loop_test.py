@@ -89,7 +89,7 @@ def _(np):
         x5 = x[4]
 
         x = np.array(x).reshape([len(x)])
-        z = model.Tinvr @ x
+        z = model.Tinvr @ (x - model.x_star)
 
         if t < 0:
             i = np.argmin(np.abs(times - t))
@@ -137,7 +137,10 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
         ax.plot(sol.t + abs(t0), sol.y[_, :], color=COLORS[_], label=LABELS[_])
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Protein Concentration (Normalized)", fontsize=15)
-    ax.set_title(r"FOM under $u = \pi_r(x,t)$; $r = " + str(r) + "$", fontsize=20)
+    ax.set_title(
+        r"FOM under $u = \pi_r(Q_r^\top (x - x^*), t)$; $r = " + str(r) + "$",
+        fontsize=20,
+    )
     ax.legend(fontsize=15)
 
     ##
@@ -147,7 +150,7 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     vals = []
     for i in range(len(sol.t)):
         x = np.array(sol.y[:, i]).reshape([5])
-        z = model.Tinvr @ x
+        z = model.Tinvr @ (x - model.x_star)
         t = sol.t[i]
         if t < 0:
             j = np.argmin(np.abs(times - t))
@@ -163,7 +166,7 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     ax.plot(sol.t + abs(t0), us)
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Control Action", fontsize=15)
-    ax.set_title(r"$u = \pi_r(x,t)$", fontsize=20)
+    ax.set_title(r"$u = \pi_r(Q_r^\top (x - x^*), t)$", fontsize=20)
 
     ##
     ax = axs[2]
@@ -171,7 +174,7 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     ax.set_ylim([-1, 1])
     ax.set_xlabel(r"$t$", fontsize=20)
     ax.set_ylabel("Value", fontsize=15)
-    ax.set_title(r"$V_r(T_r^\top x,t)$", fontsize=20)
+    ax.set_title(r"$V_r(Q_r^\top (x - x^*), t)$", fontsize=20)
 
     plt.tight_layout()
     plt.savefig(
@@ -180,6 +183,11 @@ def _(COLORS, LABELS, V, grad_valuess, grid, model, np, plt, sol, t0, times):
     )
 
     plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 

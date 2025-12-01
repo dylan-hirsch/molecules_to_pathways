@@ -47,7 +47,7 @@ def _():
 
 @app.cell
 def _():
-    rank = 2
+    rank = 5
     Ks = [0.25, 0.25, 0.25, 0.25, 0.25]
     ns = [4.0, 4.0, 4.0, 2.0, 2.0]
     return Ks, ns, rank
@@ -113,12 +113,16 @@ def _(Ks, get_lqg_bt_transform, get_minimal_realization, np, ns, root_scalar):
     )
     T, _ = np.linalg.qr(T_minreal @ T_balanced, mode="complete")
     Tinv = T.T
-    return T, Tinv
+
+    x_star = np.array([x_represillator] * 3 + [x_toggle] * 2)
+    return T, Tinv, x_star
 
 
 @app.cell
-def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns, rank):
-    model = dynamics.reduced_model(rank=rank, Ks=Ks, ns=ns, T=T, Tinv=Tinv)
+def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns, rank, x_star):
+    model = dynamics.reduced_model(
+        rank=rank, Ks=Ks, ns=ns, T=T, Tinv=Tinv, x_star=x_star
+    )
 
     Tr = T[:, 0:rank]
     Tinvr = Tinv[0:rank, :]
@@ -129,11 +133,11 @@ def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns, rank):
         hj.sets.Box(
             -1.5 * np.sqrt(5) * np.abs(zmax), 1.5 * np.sqrt(5) * np.abs(zmax)
         ),
-        (1001, 1001),
+        (21, 21, 21, 21, 21),
         periodic_dims=None,
     )
 
-    xgrid = jnp.einsum("ij,...j -> ...i", Tr, grid.states)
+    xgrid = jnp.einsum("ij,...j -> ...i", Tr, grid.states) - x_star
     l = xgrid[..., 3] - xgrid[..., 4]
     return grid, l, model
 
@@ -141,7 +145,7 @@ def _(Ks, T, Tinv, dynamics, hj, jnp, np, ns, rank):
 @app.cell
 def _(grid, hj, l, model, np):
     t0 = -5
-    times = np.linspace(0.0, t0, 1001)
+    times = np.linspace(0.0, t0, 21)
     solver_settings = hj.SolverSettings.with_accuracy("very_high")
     V = hj.solve(solver_settings, model, grid, times, l)
     return V, times
@@ -152,7 +156,7 @@ def _(V, grid, model, times):
     import pickle
 
     with open(
-        "/Users/dylanhirsch/Research/molecules_to_pathways/repressilator_and_toggle_switch/data/V_ROM2.pkl",
+        "/Users/dylanhirsch/Research/molecules_to_pathways/repressilator_and_toggle_switch/data/V_FOM.pkl",
         "wb",
     ) as file:
         pickle.dump((V, model, grid, times), file)
