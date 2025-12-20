@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.13.6"
+__generated_with = "0.18.4"
 app = marimo.App(width="medium")
 
 
@@ -56,7 +56,9 @@ def _(d, m, n, np):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Implementation of Algorithm 4.1""")
+    mo.md(r"""
+    ## Implementation of Algorithm 4.1
+    """)
     return
 
 
@@ -207,10 +209,6 @@ def _(
     def dual_dynamics(p, z, u, Phi, Psi, M):
         dp = -F_adjoint(z, u, Phi, Psi, M).T @ p
         return dp
-
-
-    def integrate_component():
-        pass
     return ROM_trajectory, dual_dynamics, init_dual, init_grad
 
 

@@ -1,6 +1,4 @@
-import marimo as mo
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.integrate import quad_vec
 from scipy.interpolate import make_interp_spline as spline
@@ -21,14 +19,18 @@ class troop:
 
         if Phi is None:
             Phi = np.random.normal(size=(self.n, self.r))
+        elif abs(np.linalg.det(Phi.T)) < 1e-12:
+            raise ValueError("Phi must be full rank.")
+        self.Phi = Phi
+
         if Psi is None:
             Psi = np.random.normal(size=(self.n, self.r))
-
-        if abs(np.linalg.det(Phi.T)) < 1e-12 or abs(np.linalg.det(Psi.T)) < 1e-12:
-            raise ValueError("Initial Phi and Psi must be full rank.") 
+        elif abs(np.linalg.det(Psi.T)) < 1e-12:
+            raise ValueError("Psi must be full rank.")
+        self.Psi = Psi
 
         self.standardize_representatives()
-        self.M = np.linalg.inv(self.Phi.T @ self.Psi)
+        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
 
     def standardize_representatives(self):
         # We map Phi0 and Psi0 to members of their equivalence class Phi and Psi which satisfy
@@ -42,13 +44,15 @@ class troop:
 
     ### Simulations of FOM and ROM
 
-    def simulate_FOM(self, U, times, x0):
+    def simulate_FOM(self, U, T, L, x0):
+        times = np.linspace(0, T, L)
         sol = solve_ivp(lambda t, x: self.f(x, U(t)), 
                         y0 = x0, t_span=(times[0], 
                         times[-1]), t_eval = times)
         return [self.g(sol.y[:, i]) for i in range(len(times))]
 
-    def simulate_ROM(self, U, times, x0):
+    def simulate_ROM(self, U, T, L, x0):
+        times = np.linspace(0, T, L)
         sol = solve_ivp(
             lambda t, z: self.M @ (self.Psi.T @ self.f(self.Phi @ z, U(t))),
             y0=self.M @ (self.Psi.T @ x0),
@@ -62,15 +66,14 @@ class troop:
     ### Adjoint calculations
 
     def F_adjoint(self, z, u):
-        F = self.M @ self.Psi.T @ self.Df(self.Phi @ z, u) @ self.Phi
-        return F.T
+        df_tilde_dz = self.M @ self.Psi.T @ self.Df(self.Phi @ z, u) @ self.Phi
+        return df_tilde_dz.T
 
     def S_adjoint_Phi(self, v, z, u):
         x = self.Phi @ z
         f_tilde = self.M @ self.Psi.T @ self.f(x, u)
-        df_tilde_dz = self.M @ self.Psi.T @ self.Df(x, u) @ self.Phi
 
-        return df_tilde_dz @ self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ z.reshape((1, self.r)) \
+        return self.Df(x, u).T @ self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ z.reshape((1, self.r)) \
             - self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ f_tilde.reshape((1, self.r))
 
     def S_adjoint_Psi(self, v, z, u):
@@ -101,7 +104,7 @@ class troop:
         error = (Yhat[-1] - Y[-1]).reshape(self.m, 1)
         z = Z(T)
         gradJ_Phi = self.T_adjoint_Phi(error, z)
-        gradJ_Psi = self.T_adjoint_Psi(error)
+        gradJ_Psi = self.T_adjoint_Psi()
 
         return gradJ_Phi, gradJ_Psi
 
@@ -122,13 +125,11 @@ class troop:
 
     def compute_gradient(self, U, T, L, x0, gamma=0.01):
 
-        times = np.linspace(0, T, L)
-
         # Simulate FOM ...
-        Y = self.simulate_FOM(U, times, x0)
+        Y = self.simulate_FOM(U, T, L, x0)
 
         # Assemble and simulate ...
-        Z, Yhat = self.simulate_ROM(U, times)
+        Z, Yhat = self.simulate_ROM(U, T, L, x0)
 
         # Initialize the gradient ...
         gradJ_Phi, gradJ_Psi = self.init_grad(Y, Yhat, Z, T)
@@ -137,6 +138,7 @@ class troop:
         p = self.init_dual(Y, Yhat, Z, T)
 
         # For l in ...
+        times = np.linspace(0, T, L)
         for l in reversed(range(L - 1)):
             tlplus1 = times[l + 1]
             tl = times[l]
@@ -156,44 +158,58 @@ class troop:
             P = spline(taus, dual_sol.y[:, ::-1].T)
 
             # Compute the integral component ...
-            gradJ_Phi = (
-                gradJ_Phi
-                + quad_vec(
+            gradJ_Phi += quad_vec(
                     lambda t: self.S_adjoint_Phi(P(t), Z(t), U(t)),
                     tl,
                     tlplus1,
                 )[0]
-            )
-            gradJ_Psi = (
-                gradJ_Psi
-                + quad_vec(
+            gradJ_Psi += quad_vec(
                     lambda t: self.S_adjoint_Psi(P(t), Z(t), U(t)),
                     tl,
                     tlplus1,
                 )[1]
-            )
 
             # Add lth element of the sum ...
             error = Yhat[l] - Y[l]
-            gradJ_Phi = gradJ_Phi + self.T_adjoint_Phi(error, Z(tl), U(tl))
-            gradJ_Psi = gradJ_Psi + self.T_adjoint_Psi(error, Z(tl), U(tl))
+            gradJ_Phi += self.T_adjoint_Phi(error, Z(tl))
+            gradJ_Psi += self.T_adjoint_Psi()
 
             # Add "jump" to adjoint ...
-            p = p + self.H_adjoint(Z(tl)) @ error
+            p += self.H_adjoint(Z(tl)) @ error
 
         # add gradient due to initial condition
-        gradJ_Phi = gradJ_Phi + self.grad_z_adjoint_Phi(p, Z(0))
-        gradJ_Psi = gradJ_Psi + self.grad_z_adjoint_Psi(x0, p, Z(0))
+        gradJ_Phi += self.grad_z_adjoint_Phi(p, Z(0))
+        gradJ_Psi += self.grad_z_adjoint_Psi(x0, p, Z(0))
 
         # normalize by trajectory length
         gradJ_Phi = gradJ_Phi / L
         gradJ_Psi = gradJ_Psi / L
 
         # Add regularization
-        gradJ_Phi = gradJ_Phi + gamma * 2 * (self.Phi - self.Psi @ self.M.T)
-        gradJ_Psi = gradJ_Psi + gamma * 2 * (self.Psi - self.Phi @ self.M)
+        gradJ_Phi += gamma * 2 * (self.Phi - self.Psi @ self.M.T)
+        gradJ_Psi += gamma * 2 * (self.Psi - self.Phi @ self.M)
 
         return gradJ_Phi, gradJ_Psi
+    
+    def gradient_step(self, U, T, L, x0, gamma=0.01, alpha=0.01):
+        gradJ_Phi, gradJ_Psi = self.compute_gradient(U, T, L, x0, gamma)
+
+        self.Phi -= alpha * gradJ_Phi
+        self.Psi -= alpha * gradJ_Psi
+
+        self.standardize_representatives()
+        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
+
+    def get_mse(self, U, T, L, x0):
+
+        Y = self.simulate_FOM(U, T, L, x0)
+        _, Yhat = self.simulate_ROM(U, T, L, x0)
+
+        error = 0.0
+        for y, yhat in zip(Y, Yhat):
+            error += np.linalg.norm(y - yhat)**2
+        error = np.sqrt(error / len(Y))
+        return error
         
 
 
