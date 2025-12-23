@@ -1,262 +1,154 @@
-import marimo
+import numpy as np
+from scipy.integrate import solve_ivp
+from scipy.integrate import quad_vec
+from scipy.interpolate import make_interp_spline as spline
 
-__generated_with = "0.18.4"
-app = marimo.App(width="medium")
+class troop:
+    
+    def __init__(self, n_states, n_reduced_states, n_inputs, n_outputs, f, g, Df, Dg, Phi = None, Psi = None):
+        
+        self.n = n_states
+        self.r = n_reduced_states
+        self.d = n_inputs
+        self.m = n_outputs
 
+        self.f = f
+        self.g = g
+        self.Df = Df
+        self.Dg = Dg
 
-@app.cell
-def _():
-    import marimo as mo
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from scipy.integrate import solve_ivp
-    from scipy.integrate import quad_vec
-    from scipy.interpolate import make_interp_spline as spline
-    return mo, np, quad_vec, solve_ivp, spline
+        if Phi is None:
+            Phi = np.random.normal(size=(self.n, self.r))
+        elif abs(np.linalg.det(Phi.T)) < 1e-12:
+            raise ValueError("Phi must be full rank.")
+        self.Phi = Phi
 
+        if Psi is None:
+            Psi = np.random.normal(size=(self.n, self.r))
+        elif abs(np.linalg.det(Psi.T)) < 1e-12:
+            raise ValueError("Psi must be full rank.")
+        self.Psi = Psi
 
-@app.cell
-def _():
-    n = 10  # FOM size
-    r = 5  # ROM size
+        self.standardize_representatives()
+        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
 
-    d = 1  # input size
-    m = 1  # output size
-
-    L = 100  # number of time steps
-    T = 1  # final time
-    return L, T, d, m, n, r
-
-
-@app.cell
-def _(d, m, n, np):
-    # USER: instantiate nonlinear dynamics, f and g, and corresponding Jacobians here
-
-    A = np.random.normal(size=(n, n))
-    B = np.random.normal(size=(n, d))
-    C = np.random.normal(size=(m, n))
-
-
-    def f(x, u):
-        return A @ x + B @ u
-
-
-    def g(x):
-        return C @ x
-
-
-    def dfdx(x, u):
-        return A
-
-
-    def dgdx(x):
-        return C
-    return dfdx, dgdx, f, g
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""
-    ## Implementation of Algorithm 4.1
-    """)
-    return
-
-
-@app.cell
-def _(L, T, f, g, n, np, r, solve_ivp):
-    # Inputs to algorithm
-    def U(t):
-        return np.sin(10 * t) * np.ones((1,))
-
-
-    def standard_representation(Phi0, Psi0):
+    def standardize_representatives(self):
         # We map Phi0 and Psi0 to members of their equivalence class Phi and Psi which satisfy
         # Phi' @ Phi = I_r
         # Psi' @ Psi = I_r
         # det(Psi' @ Phi) > 0
-        Phi, _ = np.linalg.qr(Phi0)
-        Psi, _ = np.linalg.qr(Psi0)
-        if np.linalg.det(Psi.T @ Phi) < 0:
-            Psi = -Psi
-        return Phi, Psi
+        self.Phi, _ = np.linalg.qr(self.Phi)
+        self.Psi, _ = np.linalg.qr(self.Psi)
+        if np.linalg.det(self.Psi.T @ self.Phi) < 0:
+            self.Psi = -self.Psi
 
+    ### Simulations of FOM and ROM
 
-    Phi, Psi = standard_representation(
-        np.random.normal(size=(n, r)), np.random.normal(size=(n, r))
-    )
+    def simulate_FOM(self, U, T, L, x0):
+        times = np.linspace(0, T, L)
+        sol = solve_ivp(lambda t, x: self.f(x, U(t)), 
+                        y0 = x0, t_span=(times[0], 
+                        times[-1]), t_eval = times)
+        return [self.g(sol.y[:, i]) for i in range(len(times))]
 
-
-    def FOM_output(times, x0, U):
+    def simulate_ROM(self, U, T, L, x0):
+        times = np.linspace(0, T, L)
         sol = solve_ivp(
-            lambda t, x: f(x, U(t)),
-            y0=x0,
-            t_span=(times[0], times[-1]),
-            t_eval=times,
-        )
-        return [g(sol.y[:, i]) for i in range(len(times))]
-
-
-    times = np.linspace(0, T, L)
-    x0 = np.zeros((n,))
-    Y = FOM_output(times, x0, U)
-    return Phi, Psi, U, Y, standard_representation, times, x0
-
-
-@app.cell
-def _(dfdx, dgdx, f, m, n, np, r):
-    def F_adjoint(z, u, Phi, Psi, M):
-        F = M @ Psi.T @ dfdx(Phi @ z, u) @ Phi
-        return F.T
-
-
-    def S_adjoint_Phi(v, z, u, Phi, Psi, M):
-        x = Phi @ z
-        f_tilde = M @ Psi.T @ f(x, u)
-        df_tilde_dz = M @ Psi.T @ dfdx(x, u) @ Phi
-
-        return dfdx(x, u).T @ Psi @ M.T @ v.reshape((r, 1)) @ z.reshape(
-            (1, r)
-        ) - Psi @ M.T @ v.reshape((r, 1)) @ f_tilde.reshape((1, r))
-
-
-    def S_adjoint_Psi(v, z, u, Phi, Psi, M):
-        x = Phi @ z
-        f_tilde = M @ Psi.T @ f(x, u)
-        df_tilde_dz = M @ Psi.T @ dfdx(x, u) @ Phi
-
-        return (f(x, u) - Phi @ f_tilde).reshape(n, 1) @ (v.reshape((1, r)) @ M)
-
-
-    def H_adjoint(z, Phi, Psi, M):
-        H = dgdx(Phi @ z) @ Phi
-        return H.T
-
-
-    def T_adjoint_Phi(w, z, u, Phi, Psi, M):
-        return (dgdx(Phi @ z).T @ w.reshape((m, 1))) @ z.reshape((1, r))
-
-
-    def T_adjoint_Psi(w, z, u, Phi, Psi, M):
-        return np.zeros((n, r))
-
-
-    def grad_z_adjoint_Phi(v, z, Phi, Psi, M):
-        return -Psi @ M.T @ v.reshape((r, 1)) @ z.reshape((1, r))
-
-
-    def grad_z_adjoint_Psi(x0, v, z, Phi, Psi, M):
-        return (x0 - Phi @ z).reshape((n, 1)) @ v.reshape((1, r)) @ M
-
-
-    def interpolate(t, t0, t1, z0, z1):
-        return ((t1 - t) * z0 + (t - t0) * z1) / (t1 - t0)
-    return (
-        F_adjoint,
-        H_adjoint,
-        S_adjoint_Phi,
-        S_adjoint_Psi,
-        T_adjoint_Phi,
-        T_adjoint_Psi,
-        grad_z_adjoint_Phi,
-        grad_z_adjoint_Psi,
-    )
-
-
-@app.cell
-def _(
-    F_adjoint,
-    H_adjoint,
-    T_adjoint_Phi,
-    T_adjoint_Psi,
-    f,
-    g,
-    m,
-    r,
-    solve_ivp,
-    spline,
-):
-    def ROM_trajectory(times, x0, U, Phi, Psi, M):
-        sol = solve_ivp(
-            lambda t, z: M @ (Psi.T @ f(Phi @ z, U(t))),
-            y0=M @ (Psi.T @ x0),
+            lambda t, z: self.M @ (self.Psi.T @ self.f(self.Phi @ z, U(t))),
+            y0=self.M @ (self.Psi.T @ x0),
             t_span=(times[0], times[-1]),
         )
-
         Z = spline(sol.t, sol.y.T)
-        Yhat = [g(Phi @ Z(time)) for time in times]
+        Yhat = [self.g(self.Phi @ Z(time)) for time in times]
 
         return Z, Yhat
+    
+    ### Adjoint calculations
 
+    def F_adjoint(self, z, u):
+        df_tilde_dz = self.M @ self.Psi.T @ self.Df(self.Phi @ z, u) @ self.Phi
+        return df_tilde_dz.T
 
-    def init_grad(times, U, Y, Yhat, Z, Phi, Psi, M):
-        error = (Yhat[-1] - Y[-1]).reshape(m, 1)
-        z = Z(times[-1])
-        u = U(times[-1])
-        gradJ_Phi = T_adjoint_Phi(error, z, u, Phi, Psi, M)
-        gradJ_Psi = T_adjoint_Psi(error, z, u, Phi, Psi, M)
+    def S_adjoint_Phi(self, v, z, u):
+        x = self.Phi @ z
+        f_tilde = self.M @ self.Psi.T @ self.f(x, u)
+
+        return self.Df(x, u).T @ self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ z.reshape((1, self.r)) \
+            - self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ f_tilde.reshape((1, self.r))
+
+    def S_adjoint_Psi(self, v, z, u):
+        x = self.Phi @ z
+        f_tilde = self.M @ self.Psi.T @ self.f(x, u)
+
+        return (self.f(x, u) - self.Phi @ f_tilde).reshape(self.n, 1) @ (v.reshape((1, self.r)) @ self.M)
+
+    def H_adjoint(self, z):
+        H = self.Dg(self.Phi @ z) @ self.Phi
+        return H.T
+
+    def T_adjoint_Phi(self, w, z):
+        return (self.Dg(self.Phi @ z).T @ w.reshape((self.m, 1))) @ z.reshape((1, self.r))
+
+    def T_adjoint_Psi(self):
+        return np.zeros((self.n, self.r))
+
+    def grad_z_adjoint_Phi(self, v, z):
+        return -self.Psi @ self.M.T @ v.reshape((self.r, 1)) @ z.reshape((1, self.r))
+
+    def grad_z_adjoint_Psi(self, x0, v, z):
+        return (x0 - self.Phi @ z).reshape((self.n, 1)) @ v.reshape((1, self.r)) @ self.M
+
+    ### Initialization
+        
+    def init_grad(self, Y, Yhat, Z, T):
+        error = (Yhat[-1] - Y[-1]).reshape(self.m, 1)
+        z = Z(T)
+        gradJ_Phi = self.T_adjoint_Phi(error, z)
+        gradJ_Psi = self.T_adjoint_Psi()
 
         return gradJ_Phi, gradJ_Psi
 
+    def init_dual(self, Y, Yhat, Z, T):
+        error = (Yhat[-1] - Y[-1]).reshape(self.m, 1)
+        z = Z(T)
+        p = self.H_adjoint(z) @ error
 
-    def init_dual(times, Y, Yhat, Z, Phi, Psi, M):
-        error = (Yhat[-1] - Y[-1]).reshape(m, 1)
-        z = Z(times[-1])
-        p = H_adjoint(z, Phi, Psi, M) @ error
+        return p.reshape((self.r,))
 
-        return p.reshape((r,))
+    ### Dual dynamics
 
-
-    def dual_dynamics(p, z, u, Phi, Psi, M):
-        dp = -F_adjoint(z, u, Phi, Psi, M).T @ p
+    def calculate_dual_dynamics(self, p, z, u):
+        dp = -self.F_adjoint(z, u).T @ p
         return dp
-    return ROM_trajectory, dual_dynamics, init_dual, init_grad
+    
+    ### Calculate gradients
 
+    def compute_gradient(self, U, T, L, x0, gamma=0.01):
 
-@app.cell
-def _(
-    H_adjoint,
-    L,
-    ROM_trajectory,
-    S_adjoint_Phi,
-    S_adjoint_Psi,
-    T_adjoint_Phi,
-    T_adjoint_Psi,
-    dual_dynamics,
-    grad_z_adjoint_Phi,
-    grad_z_adjoint_Psi,
-    init_dual,
-    init_grad,
-    np,
-    quad_vec,
-    solve_ivp,
-    spline,
-):
-    def troop(times, x0, Phi, Psi, U, Y, gamma=0.01):
-        M = np.linalg.inv(Psi.T @ Phi)
+        # Simulate FOM ...
+        Y = self.simulate_FOM(U, T, L, x0)
 
         # Assemble and simulate ...
-        Z, Yhat = ROM_trajectory(times, x0, U, Phi, Psi, M)
+        Z, Yhat = self.simulate_ROM(U, T, L, x0)
 
         # Initialize the gradient ...
-        gradJ_Phi, gradJ_Psi = init_grad(times, U, Y, Yhat, Z, Phi, Psi, M)
+        gradJ_Phi, gradJ_Psi = self.init_grad(Y, Yhat, Z, T)
 
         # Compute adjoint variable at final time ... (we use p in place of lambda)
-        p = init_dual(times, Y, Yhat, Z, Phi, Psi, M)
+        p = self.init_dual(Y, Yhat, Z, T)
 
         # For l in ...
+        times = np.linspace(0, T, L)
         for l in reversed(range(L - 1)):
             tlplus1 = times[l + 1]
             tl = times[l]
 
             # Solve the adjoint equation ...
             dual_sol = solve_ivp(
-                lambda t, p_dummy: dual_dynamics(
+                lambda t, p_dummy: self.calculate_dual_dynamics(
                     p_dummy,
                     Z(t),
                     U(t),
-                    Phi,
-                    Psi,
-                    M,
                 ),
                 [tlplus1, tl],
                 p,
@@ -266,76 +158,69 @@ def _(
             P = spline(taus, dual_sol.y[:, ::-1].T)
 
             # Compute the integral component ...
-            gradJ_Phi = (
-                gradJ_Phi
-                + quad_vec(
-                    lambda t: S_adjoint_Phi(P(t), Z(t), U(t), Phi, Psi, M),
+            gradJ_Phi += quad_vec(
+                    lambda t: self.S_adjoint_Phi(P(t), Z(t), U(t)),
                     tl,
                     tlplus1,
                 )[0]
-            )
-            gradJ_Psi = (
-                gradJ_Psi
-                + quad_vec(
-                    lambda t: S_adjoint_Psi(P(t), Z(t), U(t), Phi, Psi, M),
+            gradJ_Psi += quad_vec(
+                    lambda t: self.S_adjoint_Psi(P(t), Z(t), U(t)),
                     tl,
                     tlplus1,
-                )[0]
-            )
+                )[1]
 
             # Add lth element of the sum ...
             error = Yhat[l] - Y[l]
-            gradJ_Phi = gradJ_Phi + T_adjoint_Phi(error, Z(tl), U(tl), Phi, Psi, M)
-            gradJ_Phi = gradJ_Phi + T_adjoint_Psi(error, Z(tl), U(tl), Phi, Psi, M)
+            gradJ_Phi += self.T_adjoint_Phi(error, Z(tl))
+            gradJ_Psi += self.T_adjoint_Psi()
 
             # Add "jump" to adjoint ...
-            p = p + H_adjoint(Z(tl), Phi, Psi, M) @ error
+            p += self.H_adjoint(Z(tl)) @ error
 
         # add gradient due to initial condition
-        gradJ_Phi = gradJ_Phi + grad_z_adjoint_Phi(p, Z(0), Phi, Psi, M)
-        gradJ_Psi = gradJ_Psi + grad_z_adjoint_Psi(x0, p, Z(0), Phi, Psi, M)
+        gradJ_Phi += self.grad_z_adjoint_Phi(p, Z(0))
+        gradJ_Psi += self.grad_z_adjoint_Psi(x0, p, Z(0))
 
         # normalize by trajectory length
         gradJ_Phi = gradJ_Phi / L
         gradJ_Psi = gradJ_Psi / L
 
         # Add regularization
-        gradJ_Phi = gradJ_Phi + gamma * 2 * (Phi - Psi @ M.T)
-        gradJ_Psi = gradJ_Psi + gamma * 2 * (Psi - Phi @ M)
+        gradJ_Phi += gamma * 2 * (self.Phi - self.Psi @ self.M.T)
+        gradJ_Psi += gamma * 2 * (self.Psi - self.Phi @ self.M)
 
-        return gradJ_Phi, gradJ_Psi
-    return (troop,)
+        return gradJ_Phi, gradJ_Psi 
+    
+    def gradient_step(self, U, T, L, x0, gamma=0.01, alpha=0.01):
+        gradJ_Phi, gradJ_Psi = self.compute_gradient(U, T, L, x0, gamma)
 
+        self.Phi -= alpha * gradJ_Phi
+        self.Psi -= alpha * gradJ_Psi
 
-@app.cell
-def _(Phi, Psi, U, Y, np, standard_representation, times, troop, x0):
-    def _(Phi, Psi):
-        alpha = 0.01
-        for i in range(100):
-            gradJ_Phi, gradJ_Psi = troop(times, x0, Phi, Psi, U, Y)
-            print(
-                np.linalg.norm(gradJ_Phi, "fro"), np.linalg.norm(gradJ_Psi, "fro")
-            )
-            Phi -= alpha * gradJ_Phi
-            Psi -= alpha * gradJ_Psi
-            Phi, Psi = standard_representation(Phi, Psi)
-        return Phi, Psi
+        self.standardize_representatives()
+        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
 
+    def get_mse(self, U, T, L, x0):
 
-    Phi_fin, Psi_fin = _(Phi, Psi)
-    return
+        Y = self.simulate_FOM(U, T, L, x0)
+        _, Yhat = self.simulate_ROM(U, T, L, x0)
 
+        error = 0.0
+        for y, yhat in zip(Y, Yhat):
+            error += np.linalg.norm(y - yhat)**2
+        error = np.sqrt(error / len(Y))
+        return error
+    
+    def get_cost(self, U, T, L, x0, gamma=0.01):
 
-@app.cell
-def _(tos):
-    tos
-    return
+        Y = self.simulate_FOM(U, T, L, x0)
+        _, Yhat = self.simulate_ROM(U, T, L, x0)
 
+        error = 0.0
+        for y, yhat in zip(Y, Yhat):
+            error += np.linalg.norm(y - yhat)**2
+        error = error / len(Y)
 
-@app.cell
-def _():
-    return
+        reg = -2 * np.log(np.linalg.det(self.Psi.T @ self.Phi))
 
-
-if __name__ == "__main__":
-    app.run()
+        return error + reg

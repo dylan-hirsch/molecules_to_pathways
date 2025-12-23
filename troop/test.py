@@ -9,7 +9,7 @@ def _():
     import marimo as mo
     import numpy as np
     import matplotlib.pyplot as plt
-    import troop_vscode as troop
+    import troop
     return np, plt, troop
 
 
@@ -95,6 +95,84 @@ def _(np):
         x1 = x[0]
         x2 = x[1]
         return np.array([2 * x1, 2 * x2, 0]).reshape((1, 3))
+
+
+    """
+    K1 = 0.25
+    K2 = 0.25
+    K3 = 0.25
+    K4 = 0.25
+    K5 = 0.25
+
+    n1 = 4.0
+    n2 = 4.0
+    n3 = 4.0
+    n4 = 2.0
+    n5 = 2.0
+
+
+    def mm(x, K, n):
+        return 1.0 / (1.0 + (x / K) ** n)
+
+
+    def dmmdx(x, K, n):
+        return -n / K * (x / K) ** (n - 1) / (1.0 + (x / K) ** n) ** 2
+
+
+    def f(x, u):
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+
+        return np.array(
+            [
+                mm(x3, K3, n3) - x1,
+                mm(x1, K1, n1) - x2,
+                mm(x2, K2, n2) - x3,
+                mm(x5, K5, n5) - x4 + u * mm(x2, K2, n2),
+                mm(x4, K4, n4) - x5 + u * mm(x3, K3, n3),
+            ]
+        ).reshape((5,))
+
+
+    def g(x):
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+        return np.array([x4 - x5]).reshape(
+            1,
+        )
+
+
+    def dfdx(x, u):
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+        return np.array(
+            [
+                [-1, 0, dmmdx(x3, K3, n3), 0, 0],
+                [dmmdx(x1, K1, n1), -1, 0, 0, 0],
+                [0, dmmdx(x2, K2, n2), -1, 0, 0],
+                [0, u * dmmdx(x2, K2, n2), 0, -1, dmmdx(x5, K5, n5)],
+                [0, 0, u * dmmdx(x3, K3, n3), dmmdx(x4, K4, n4), -1],
+            ]
+        ).reshape((5, 5))
+
+
+    def dgdx(x):
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+        return np.array([0, 0, 0, 1, -1]).reshape((1, 5))
+    """
     return dfdx, dgdx, f, g
 
 
@@ -107,10 +185,10 @@ def _(d, dfdx, dgdx, f, g, m, n, r, troop):
 @app.cell
 def _(L, T, n, np, object):
     x0 = np.zeros((n,))
-    U = lambda t: 2 * np.sin(t)  # np.sin(t) * np.ones((1,))
+    U = lambda t: np.sin(t)  # * np.ones((1,))
     print(object.get_mse(U, T, L, x0))
     for _ in range(100):
-        object.gradient_step(U, T, L, x0, alpha=0.1)
+        object.gradient_step(U, T, L, x0, alpha=0.005)
         print(object.get_mse(U, T, L, x0))
     return U, x0
 
@@ -126,8 +204,12 @@ def _(L, T, U, np, object, x0):
 
 @app.cell
 def _(Y, Yhat, plt):
-    plt.plot(Y)
-    plt.plot(Yhat)
+    plt.plot(Y, label="FOM (n = 10)")
+    plt.plot(Yhat, label="ROM (r = 5)")
+    plt.legend()
+    plt.xlabel(r"$t$")
+    plt.ylabel(r"$y$")
+    plt.title("Simple TROOP Example")
     return
 
 
