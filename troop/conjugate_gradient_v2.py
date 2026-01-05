@@ -13,7 +13,7 @@ def _():
     import dynamics
     import troop
     import copy
-    return copy, np, troop
+    return copy, np, plt, troop
 
 
 @app.cell
@@ -101,7 +101,7 @@ def _(copy, np):
 
 
     def bisection(
-        trooper, UX, SX, VX, UY, SY, VY, U, T, L, x0, gamma=0.01, c1=0.1, c2=0.9
+        trooper, UX, SX, VX, UY, SY, VY, U, T, L, x0, gamma=0.01, c1=0.4, c2=0.6
     ):
         J_left = trooper.get_cost(U, T, L, x0, gamma)
 
@@ -114,7 +114,7 @@ def _(copy, np):
         beta = np.inf
 
         temp_trooper = copy.deepcopy(trooper)
-        while True:
+        while beta - alpha >= 1e-3:
             Phi_left = geodesic(alpha + t, trooper.Phi, UX, SX, VX)
             Psi_left = geodesic(alpha + t, trooper.Psi, UY, SY, VY)
 
@@ -123,7 +123,7 @@ def _(copy, np):
             temp_trooper.standardize_representatives()
             temp_trooper.update_M()
 
-            J_right = temp_trooper.get_cost(U, T, L, x0, gamma=0.01)
+            J_right = temp_trooper.get_cost(U, T, L, x0, gamma=gamma)
             dJ_right = dJdAlpha(
                 trooper,
                 temp_trooper,
@@ -151,6 +151,7 @@ def _(copy, np):
                     t = 0.5 * (alpha + beta)
             else:
                 break
+
         return alpha
 
 
@@ -181,15 +182,15 @@ def _(
 ):
     trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx)
 
-    U = lambda t: np.sin(2 * np.pi * t)
+    U = lambda t: 1  # np.sin(np.pi * t)
     x0 = np.zeros((3,))
-    gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0, gamma=0.01)
+    gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0)
     X = gradJ_Phi
     Y = gradJ_Psi
     stopping_criterion = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
 
     # while stopping_criterion > 1e-8:
-    for _ in range(10):
+    for i in range(20):
         UX, SX, VXT = np.linalg.svd(X, full_matrices=False)
         UY, SY, VYT = np.linalg.svd(Y, full_matrices=False)
 
@@ -210,8 +211,6 @@ def _(
             c2=0.9,
         )
 
-        print(alpha)
-
         X_tilde = parallel_translation(alpha, trooper.Phi, X, UX, SX, VXT.T)
         Y_tilde = parallel_translation(alpha, trooper.Psi, Y, UY, SY, VYT.T)
 
@@ -224,9 +223,6 @@ def _(
         trooper.update_M()
         X_tilde[:, 0] = parity * X_tilde[:, 0]
         gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0)
-        gradJ_Phi, gradJ_Psi = trooper.project_onto_tangent_space(
-            [gradJ_Phi, gradJ_Psi]
-        )
 
         numerator = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
         denominator_1 = inner_product(gradJ_Phi, gradJ_Psi, X_tilde, Y_tilde)
@@ -235,8 +231,28 @@ def _(
         X = gradJ_Phi + beta * X_tilde
         Y = gradJ_Psi + beta * Y_tilde
 
-        print(beta)
         print(trooper.get_cost(U, T, L, x0))
+    return U, trooper, x0
+
+
+@app.cell
+def _(L, T, U, np, plt, trooper, x0):
+    def _():
+        Y = trooper.simulate_FOM(U, T, L, x0)
+        _, Yhat = trooper.simulate_ROM(U, T, L, x0)
+        Y = np.array(Y)
+        Yhat = np.array(Yhat)
+
+        plt.plot(Y, label="FOM (n = 3)")
+        plt.plot(Yhat, label="ROM (r = 2)")
+        plt.legend()
+        plt.xlabel(r"$t$")
+        plt.ylabel(r"$y$")
+        plt.title("Simple TROOP Example")
+        plt.show()
+
+
+    _()
     return
 
 

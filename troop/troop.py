@@ -30,7 +30,7 @@ class troop:
         self.Psi = Psi
 
         self.standardize_representatives()
-        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
+        self.update_M()
 
     def standardize_representatives(self):
         # We map Phi0 and Psi0 to members of their equivalence class Phi and Psi which satisfy
@@ -39,8 +39,14 @@ class troop:
         # det(Psi' @ Phi) > 0
         self.Phi, _ = np.linalg.qr(self.Phi)
         self.Psi, _ = np.linalg.qr(self.Psi)
+        parity = 1
         if np.linalg.det(self.Psi.T @ self.Phi) < 0:
-            self.Psi = -self.Psi
+            self.Psi[:, 0] = -self.Psi[:, 0]
+            parity = -1
+        return parity
+
+    def update_M(self):
+        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
 
     ### Simulations of FOM and ROM
 
@@ -189,7 +195,24 @@ class troop:
         gradJ_Phi += gamma * 2 * (self.Phi - self.Psi @ self.M.T)
         gradJ_Psi += gamma * 2 * (self.Psi - self.Phi @ self.M)
 
-        return gradJ_Phi, gradJ_Psi 
+        gradJ_Phi,_ = np.linalg.qr(gradJ_Phi)
+        gradJ_Psi,_ = np.linalg.qr(gradJ_Psi)
+        gradient = self.project_onto_tangent_space([gradJ_Phi, gradJ_Psi])
+
+        return gradient[0], gradient[1]
+
+    def project_onto_tangent_space(self, gradient):
+        # Project the gradient onto the tangent space of the Stiefel manifold
+        state = [self.Phi, self.Psi]
+        projection = []
+        for Y, Z in zip(state, gradient):
+            A = Y.T @ Z
+            symmetric = (A + A.T) / 2
+            Delta = Z - Y @ symmetric
+            Delta_star = Delta - Y @ Y.T @ Delta
+            projection.append(Delta_star)
+
+        return projection
     
     def gradient_step(self, U, T, L, x0, gamma=0.01, alpha=0.01):
         gradJ_Phi, gradJ_Psi = self.compute_gradient(U, T, L, x0, gamma)
@@ -198,7 +221,7 @@ class troop:
         self.Psi -= alpha * gradJ_Psi
 
         self.standardize_representatives()
-        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
+        self.update_M()
 
     def get_mse(self, U, T, L, x0):
 

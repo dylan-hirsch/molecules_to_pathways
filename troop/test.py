@@ -186,11 +186,11 @@ def _(d, dfdx, dgdx, f, g, m, n, r, troop):
 def _(L, T, n, np, object):
     x0 = np.zeros((n,))
     U = lambda t: np.sin(t)  # * np.ones((1,))
-    print(object.get_mse(U, T, L, x0))
+    MSEs = [object.get_mse(U, T, L, x0)]
     for _ in range(100):
-        object.gradient_step(U, T, L, x0, alpha=0.005)
-        print(object.get_mse(U, T, L, x0))
-    return U, x0
+        object.gradient_step(U, T, L, x0, alpha=0.001)
+        MSEs.append(object.get_mse(U, T, L, x0))
+    return MSEs, U, x0
 
 
 @app.cell
@@ -214,7 +214,8 @@ def _(Y, Yhat, plt):
 
 
 @app.cell
-def _():
+def _(MSEs, plt):
+    plt.plot(MSEs)
     return
 
 
