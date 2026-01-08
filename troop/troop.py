@@ -3,12 +3,9 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.integrate import quad_vec
 
-random.seed(23)
-np.random.seed(23)
-
 class troop:
     
-    def __init__(self, n, r, d, m, f, g, Df, Dg, Phi = None, Psi = None, U = None, x0 = None, T = 1.0, L = 100, gamma = 0.001):
+    def __init__(self, n, r, d, m, f, g, Df, Dg, Phi = None, Psi = None, U = None, x0 = None, M = None, Y = None, Yhat = None, Z = None, T = 1.0, L = 101, gamma = 0.001, standardize_upon_initialization = True):
         
         self.n = n
         self.r = r
@@ -20,19 +17,11 @@ class troop:
         self.Df = Df
         self.Dg = Dg
 
-        if Phi is None:
-            Phi = np.random.normal(size=(self.n, self.r))
-        elif abs(np.linalg.det(Phi.T @ Phi)) < 1e-12:
-            raise ValueError("Phi must be full rank.")
         self.Phi = Phi
-
-        if Psi is None:
-            Psi = np.random.normal(size=(self.n, self.r))
-        elif abs(np.linalg.det(Psi.T @ Psi)) < 1e-12:
-            raise ValueError("Psi must be full rank.")
         self.Psi = Psi
-
-        self.standardize_representatives()
+        self.M = M
+        if standardize_upon_initialization:
+            self.standardize_representatives()
 
         if U is None:
             U = lambda t: np.zeros((self.d,))
@@ -45,12 +34,19 @@ class troop:
         self.times = np.linspace(0, T, L)
         self.gamma = gamma
 
-        self.Y = None
-        self.simulate_FOM()
+        if Y is None:
+            self.Y = None
+            self.simulate_FOM()
+        else:
+            self.Y = Y
 
-        self.Yhat = None
-        self.Z = None
-        self.simulate_ROM()
+        if Yhat is None or Z is None:
+            self.Yhat = None
+            self.Z = None
+            self.simulate_ROM()
+        else:
+            self.Yhat = Yhat
+            self.Z = Z
 
 
     def standardize_representatives(self):
@@ -58,22 +54,40 @@ class troop:
         # Phi' @ Phi = I_r
         # Psi' @ Psi = I_r
         # det(Psi' @ Phi) > 0
-        self.Phi, _ = np.linalg.qr(self.Phi)
-        self.Psi, _ = np.linalg.qr(self.Psi)
 
-        parity = 1
-        if np.linalg.det(self.Psi.T @ self.Phi) < 0:
-            self.Psi[:, 0] = -self.Psi[:, 0]
-            parity = -1
+        if self.Phi is None:
+            self.Phi = np.random.normal(size=(self.n, self.r))
         
-        self.M = np.linalg.inv(self.Psi.T @ self.Phi)
+        PhiTPhi = self.Phi.T @ self.Phi
+        if np.linalg.norm(PhiTPhi - np.eye(self.r)) > 1e-10:
+            self.Phi, _ = np.linalg.qr(self.Phi)
+
+
+        if self.Psi is None:
+            self.Psi = np.random.normal(size=(self.n, self.r))
+
+        PsiTPsi = self.Psi.T @ self.Psi
+        if np.linalg.norm(PsiTPsi - np.eye(self.r)) > 1e-10:
+            self.Psi, _ = np.linalg.qr(self.Psi)
+
+
+        PsiTPhi = self.Psi.T @ self.Phi
+        if np.linalg.det(PsiTPhi) < 0:
+            parity = -1
+            self.Psi[:, 0] = -self.Psi[:, 0]
+        else:
+            parity = 1
+
+
+        if self.M is None or np.linalg.norm(self.M @ PsiTPhi - np.eye(self.r)) > 1e-10:
+            self.M = np.linalg.inv(PsiTPhi)
+
         return parity
 
     ### Simulations of FOM and ROM
 
     def simulate_FOM(self):
         
-        # Simulate FOM
         sol = solve_ivp(lambda t, x: self.f(x, self.U(t)), 
                         y0 = self.x0,
                         t_span=(self.times[0], self.times[-1]),
@@ -84,7 +98,6 @@ class troop:
 
     def simulate_ROM(self):
 
-        # Simulate ROM
         sol = solve_ivp(
             lambda t, z: self.M @ (self.Psi.T @ self.f(self.Phi @ z, self.U(t))),
             y0=self.M @ (self.Psi.T @ self.x0),
@@ -92,6 +105,13 @@ class troop:
             dense_output=True)
         self.Z = lambda t: sol.sol(t)
         self.Yhat = lambda t: self.g(self.Phi @ self.Z(t))
+
+    ## Setter
+    def set_Phi_Psi(self, Phi, Psi):
+        self.Phi = Phi
+        self.Psi = Psi
+        self.standardize_representatives()
+        self.simulate_ROM()
 
     ### Adjoint calculations
 
@@ -127,7 +147,7 @@ class troop:
     def grad_z_adjoint_Psi(self, v, z):
         return (self.x0 - self.Phi @ z).reshape((self.n, 1)) @ v.reshape((1, self.r)) @ self.M
 
-    ### Initialization
+    ### Initialization of gradient and dual
         
     def init_grad(self):
         t = self.times[-1]
@@ -186,7 +206,7 @@ class troop:
                     lambda t: self.S_adjoint_Psi(P(t), self.Z(t), self.U(t)),
                     tl,
                     tlplus1,
-                )[1]
+                )[0]
 
             # Add lth element of the sum ...
             error = self.Yhat(tl) - self.Y(tl)
@@ -205,7 +225,7 @@ class troop:
         gradJ_Psi = gradJ_Psi / len(self.times)
 
         # Add regularization
-        gradJ_Phi += 0 * self.gamma * 2 * (self.Phi - self.Psi @ self.M.T)
+        gradJ_Phi += self.gamma * 2 * (self.Phi - self.Psi @ self.M.T)
         gradJ_Psi += self.gamma * 2 * (self.Psi - self.Phi @ self.M)
 
         # Project onto tangent spaces
@@ -218,18 +238,69 @@ class troop:
         # Project matrix Upsilon onto the tangent space of the Grassman manifold at state Theta
         return Upsilon - Theta @ Theta.T @ Upsilon
 
+    # Geodesic calculations
+    def compute_translation_along_geodesic(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
+        Phi_alpha = self.Phi @ (Vx * np.cos(alpha * Sx)) @ Vx.T + (Ux * np.sin(alpha * Sx)) @ Vx.T
+        Psi_alpha = self.Psi @ (Vy * np.cos(alpha * Sy)) @ Vy.T + (Uy * np.sin(alpha * Sy)) @ Vy.T
+        return Phi_alpha, Psi_alpha
+
+    def compute_d_geodesic_d_alpha(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
+        dPhi_dalpha = self.Phi @ (-Vx * np.sin(alpha * Sx) * Sx) @ Vx.T + (Ux * np.cos(alpha * Sx) * Sx) @ Vx.T
+        dPsi_dalpha = self.Psi @ (-Vy * np.sin(alpha * Sy) * Sy) @ Vy.T + (Uy * np.cos(alpha * Sy) * Sy) @ Vy.T
+        return dPhi_dalpha, dPsi_dalpha
+    
+    def compute_parallel_translation(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y):
+        dPhi_dalpha, dPsi_dalpha = self.compute_d_geodesic_d_alpha(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+        Xtilde = dPhi_dalpha + X - Ux @ Ux.T @ X
+        Ytilde = dPsi_dalpha + Y - Uy @ Uy.T @ Y
+        return Xtilde, Ytilde
+
+    def get_cost_derivative(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y):
+        #dPhi_dalpha, dPsi_dalpha = self.compute_d_geodesic_d_alpha(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+        dPhi_dalpha, dPsi_dalpha = self.compute_parallel_translation(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+        grad_Phi, grad_Psi = self.compute_gradient()
+        cost_derivative = np.sum(grad_Phi * dPhi_dalpha) + np.sum(grad_Psi * dPsi_dalpha)
+        return cost_derivative
+
+    # Gradient descent
     def conjugate_gradient(self):
         pass
 
+    # Cost functions
     def get_mse(self):
         
         error = 0.0
         for t in self.times:
             error += np.linalg.norm(self.Y(t) - self.Yhat(t))**2
-        error = np.sqrt(error / len(self.times))
-        return error
+        return error / len(self.times)
     
     def get_cost(self):
-
-        reg = -2 * self.gamma * np.log(np.linalg.det(self.Psi.T @ self.Phi))
-        return self.get_mse() / len(self.times) + reg
+        self.simulate_ROM()
+        _, logabsdet = np.linalg.slogdet(self.Psi.T @ self.Phi)
+        reg = -2 * self.gamma * logabsdet
+        return self.get_mse() + reg
+    
+    # Copier
+    def copy(self):
+        new_trooper = troop(
+            n=self.n,
+            r=self.r,
+            d=self.d,
+            m=self.m,
+            f=self.f,
+            g=self.g,
+            Df=self.Df,
+            Dg=self.Dg,
+            Phi=self.Phi.copy(),
+            Psi=self.Psi.copy(),
+            gamma = self.gamma,
+            U=self.U,
+            x0=self.x0,
+            T=self.times[-1],
+            L=len(self.times),
+            Y=self.Y,
+            Yhat=self.Yhat,
+            Z=self.Z,
+            standardize_upon_initialization=False
+        )
+        return new_trooper

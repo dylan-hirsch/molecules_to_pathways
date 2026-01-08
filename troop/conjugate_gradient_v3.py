@@ -13,11 +13,10 @@ def _():
 
     import dynamics
     import troop
-    import copy
 
     random.seed(25)
     np.random.seed(25)
-    return copy, np, troop
+    return np, plt, troop
 
 
 @app.cell
@@ -31,6 +30,7 @@ def _(np):
     L = 11  # number of time steps
     T = 5  # final time
 
+    """
     A = np.array([[-1.0, 0.0, 0.0], [0.0, -2.0, 0.0], [0.0, 0.0, -5.0]])
     B = np.array([[1.0], [1.0], [1.0]])
     C = np.array([[1.0, 1.0, 1.0]])
@@ -50,170 +50,140 @@ def _(np):
 
     def dgdx(x):
         return C
+    """
+
+
+    def f(x, u):
+        x1 = x[0]
+        x2 = x[1]
+        theta = x[2]
+        return np.array([np.cos(theta), np.sin(theta), u]).reshape((3,))
+
+
+    def g(x):
+        x1 = x[0]
+        x2 = x[1]
+        return np.sqrt(np.array([x1**2 + x2**2])).reshape((1,))
+
+
+    def dfdx(x, u):
+        x1 = x[0]
+        x2 = x[1]
+        theta = x[2]
+        return np.array(
+            [[0, 0, -np.sin(theta)], [0, 0, np.cos(theta)], [0, 0, 0]]
+        ).reshape((3, 3))
+
+
+    def dgdx(x):
+        x1 = x[0]
+        x2 = x[1]
+        return np.array([2 * x1, 2 * x2, 0]).reshape((1, 3))
     return L, T, d, dfdx, dgdx, f, g, m, n, r
 
 
 @app.cell
-def _(copy, np):
+def _(np):
     def inner_product(X1, Y1, X2, Y2):
-        trace_Xs = np.linalg.trace(X1.T @ X2)
-        trace_Ys = np.linalg.trace(Y1.T @ Y2)
-        return trace_Xs + trace_Ys
+        return np.linalg.trace(X1.T @ X2) + np.linalg.trace(Y1.T @ Y2)
 
 
-    def geodesic(alpha, Q, U, S, V):
-        return Q @ (V * np.cos(alpha * S)) @ V.T + (U * np.sin(alpha * S)) @ V.T
+    def bisection(trooper, Ux, Sx, Vx, Uy, Sy, Vy, X, Y, c1=0.4, c2=0.6):
+        alpha_trooper = trooper.copy()
 
+        J0 = trooper.get_cost()
+        dJ0 = trooper.get_cost_derivative(0, Ux, Sx, Vx, Uy, Sy, Vy, X, Y)
 
-    def d_geodesic(alpha, Q, U, S, V):
-        return (
-            -Q @ (V * (np.sin(alpha * S) * S)) @ V.T
-            + (U * (np.cos(alpha * S) * S)) @ V.T
+        Phi_alpha, Psi_alpha = trooper.compute_translation_along_geodesic(
+            0.01, Ux, Sx, Vx, Uy, Sy, Vy
         )
+        alpha_trooper.set_Phi_Psi(Phi_alpha, Psi_alpha)
 
+        J = alpha_trooper.get_cost()
+        print((J - J0) / 0.01)
+        print(dJ0)
 
-    def dJdAlpha(
-        trooper, temp_trooper, alpha, U, T, L, x0, UX, SX, VX, UY, SY, VY
-    ):
-        dJdPhi, dJdPsi = temp_trooper.compute_gradient()
-        dPhidAlpha = d_geodesic(alpha, trooper.Phi, UX, SX, VX)
-        dPsidAlpha = d_geodesic(alpha, trooper.Psi, UY, SY, VY)
-        dJdAlpha = np.sum(dJdPhi * dPhidAlpha + dJdPsi * dPsidAlpha)
+        lb = 0
+        alpha = 1
+        ub = np.inf
 
-        return dJdAlpha
-
-
-    def bisection(trooper, UX, SX, VX, UY, SY, VY, U, T, L, x0, c1=0.4, c2=0.6):
-        J_left = trooper.get_cost()
-
-        dJ_left = dJdAlpha(
-            trooper, trooper, 0, U, T, L, x0, UX, SX, VX, UY, SY, VY
-        )
-
-        alpha = 0
-        t = 1
-        beta = np.inf
-
-        temp_trooper = copy.deepcopy(trooper)
-        while beta - alpha >= 1e-3:
-            Phi_left = geodesic(alpha + t, trooper.Phi, UX, SX, VX)
-            Psi_left = geodesic(alpha + t, trooper.Psi, UY, SY, VY)
-
-            temp_trooper.Phi = Phi_left
-            temp_trooper.Psi = Psi_left
-            temp_trooper.standardize_representatives()
-            J_right = temp_trooper.get_cost()
-            dJ_right = dJdAlpha(
-                trooper,
-                temp_trooper,
-                alpha + t,
-                U,
-                T,
-                L,
-                x0,
-                UX,
-                SX,
-                VX,
-                UY,
-                SY,
-                VY,
+        while ub - lb > 1e-3:
+            Phi_alpha, Psi_alpha = trooper.compute_translation_along_geodesic(
+                alpha, Ux, Sx, Vx, Uy, Sy, Vy
             )
+            alpha_trooper.set_Phi_Psi(Phi_alpha, Psi_alpha)
 
-            if J_right > J_left + c1 * t * dJ_left:
-                beta = t
-                t = 0.5 * (alpha + beta)
-            elif dJ_right < c2 * dJ_left:
-                alpha = t
-                if beta == np.inf:
-                    t = 2 * alpha
-                else:
-                    t = 0.5 * (alpha + beta)
+            J = alpha_trooper.get_cost()
+            if J > J0 + c1 * alpha * dJ0:
+                ub = alpha
+                alpha = 0.5 * (lb + ub)
             else:
-                break
-
-        return alpha
-
-
-    def parallel_translation(alpha, Q, P, U, S, V):
-        dQ = d_geodesic(alpha, Q, U, S, V)
-        return dQ + P - U @ U.T @ P
-    return bisection, geodesic, inner_product, parallel_translation
+                dJ = alpha_trooper.get_cost_derivative(
+                    alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
+                )
+                if dJ < c2 * dJ0:
+                    lb = alpha
+                    if ub == np.inf:
+                        alpha = 2 * lb
+                    else:
+                        alpha = 0.5 * (lb + ub)
+                else:
+                    break
+        return alpha, alpha_trooper
+    return bisection, inner_product
 
 
 @app.cell
-def _(
-    L,
-    T,
-    bisection,
-    d,
-    dfdx,
-    dgdx,
-    f,
-    g,
-    geodesic,
-    inner_product,
-    m,
-    n,
-    np,
-    parallel_translation,
-    r,
-    troop,
-):
-    U = lambda t: np.array([1])
+def _(L, T, bisection, d, dfdx, dgdx, f, g, inner_product, m, n, np, r, troop):
+    U = lambda t: 1  # np.array([1])
     x0 = np.array([0.0, 0.0, 0.0])
     trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx, U=U, x0=x0, T=T, L=L)
     gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
 
-    X = gradJ_Phi.copy()
-    Y = gradJ_Psi.copy()
+    X = -gradJ_Phi
+    Y = -gradJ_Psi
     stopping_criterion = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
 
     # while stopping_criterion > 1e-8:
-    for i in range(20):
-        UX, SX, VXT = np.linalg.svd(X, full_matrices=False)
-        UY, SY, VYT = np.linalg.svd(Y, full_matrices=False)
+    for k in range(100):
+        Ux, Sx, VxT = np.linalg.svd(X, full_matrices=False)
+        Uy, Sy, VyT = np.linalg.svd(Y, full_matrices=False)
+        Vx = VxT.T
+        Vy = VyT.T
 
-        alpha = bisection(
-            trooper,
-            UX,
-            SX,
-            VXT.T,
-            UY,
-            SY,
-            VYT.T,
-            U,
-            T,
-            L,
-            x0,
-            c1=0.1,
-            c2=0.9,
+        alpha, alpha_trooper = bisection(trooper, Ux, Sx, Vx, Uy, Sy, Vy, X, Y)
+        break
+
+        X_tilde, Y_tilde = trooper.compute_parallel_translation(
+            alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
         )
-
-        X_tilde = parallel_translation(alpha, trooper.Phi, X, UX, SX, VXT.T)
-        Y_tilde = parallel_translation(alpha, trooper.Psi, Y, UY, SY, VYT.T)
-
         gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
-        denominator_2 = inner_product(gradJ_Phi, gradJ_Psi, X, Y)
+        denominator_2 = inner_product(-gradJ_Phi, -gradJ_Psi, X, Y)
 
-        trooper.Phi = geodesic(alpha, trooper.Phi, UX, SX, VXT.T)
-        trooper.Psi = geodesic(alpha, trooper.Psi, UY, SY, VYT.T)
+        trooper = alpha_trooper
         parity = trooper.standardize_representatives()
         X_tilde[:, 0] = parity * X_tilde[:, 0]
         gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
 
-        numerator = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
-        denominator_1 = inner_product(gradJ_Phi, gradJ_Psi, X_tilde, Y_tilde)
+        numerator = inner_product(-gradJ_Phi, -gradJ_Psi, -gradJ_Phi, -gradJ_Psi)
+        denominator_1 = inner_product(-gradJ_Phi, -gradJ_Psi, X_tilde, Y_tilde)
 
         beta = numerator / (denominator_1 + denominator_2)
-        X = gradJ_Phi + beta * X_tilde
-        Y = gradJ_Psi + beta * Y_tilde
+        X = -gradJ_Phi + beta * X_tilde
+        Y = -gradJ_Psi + beta * Y_tilde
 
-        # print(trooper.get_cost())
-    return
+        print(trooper.get_cost())
+    return (trooper,)
 
 
 @app.cell
-def _():
+def _(L, T, np, plt, trooper):
+    ts = np.linspace(0, T, L)
+    ys = [trooper.Y(t) for t in ts]
+    yhats = [trooper.Yhat(t) for t in ts]
+
+    plt.plot(ts, ys)
+    plt.plot(ts, yhats)
     return
 
 

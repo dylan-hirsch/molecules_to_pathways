@@ -1,5 +1,9 @@
 import numpy as np
-import troop_v2 as troop
+import troop as troop
+import random
+
+random.seed(25)
+np.random.seed(25)
 
 """"
 n = 3  # FOM size
@@ -45,9 +49,6 @@ r = 2  # ROM size
 d = 1  # input size
 m = 1  # output size
 
-L = 100  # number of time steps
-T = 10  # final time
-
 A = np.array([[-1.0, 0.0, 0.0], [0.0, -2.0, 0.0], [0.0, 0.0, -5.0]])
 B = np.array([[1.0], [1.0], [1.0]])
 C = np.array([[1.0, 1.0, 1.0]])
@@ -68,3 +69,6 @@ def dgdx(x):
 
 trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx, U = lambda t: np.ones((1,)), T = 5.0, L = 11)
 grad_Phi, grad_Psi = trooper.compute_gradient()
+
+print(grad_Phi)
+print(grad_Psi)

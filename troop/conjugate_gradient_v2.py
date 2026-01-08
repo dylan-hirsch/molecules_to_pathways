@@ -9,11 +9,15 @@ def _():
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
+    import random
 
     import dynamics
     import troop
     import copy
-    return copy, np, plt, troop
+
+    random.seed(25)
+    np.random.seed(25)
+    return copy, np, troop
 
 
 @app.cell
@@ -24,36 +28,28 @@ def _(np):
     d = 1  # input size
     m = 1  # output size
 
-    L = 100  # number of time steps
-    T = 10  # final time
+    L = 11  # number of time steps
+    T = 5  # final time
+
+    A = np.array([[-1.0, 0.0, 0.0], [0.0, -2.0, 0.0], [0.0, 0.0, -5.0]])
+    B = np.array([[1.0], [1.0], [1.0]])
+    C = np.array([[1.0, 1.0, 1.0]])
 
 
     def f(x, u):
-        x1 = x[0]
-        x2 = x[1]
-        theta = x[2]
-        return np.array([np.cos(theta), np.sin(theta), u]).reshape((3,))
+        return A @ x + B @ u
 
 
     def g(x):
-        x1 = x[0]
-        x2 = x[1]
-        return np.sqrt(np.array([x1**2 + x2**2])).reshape((1,))
+        return C @ x
 
 
     def dfdx(x, u):
-        x1 = x[0]
-        x2 = x[1]
-        theta = x[2]
-        return np.array(
-            [[0, 0, -np.sin(theta)], [0, 0, np.cos(theta)], [0, 0, 0]]
-        ).reshape((3, 3))
+        return A
 
 
     def dgdx(x):
-        x1 = x[0]
-        x2 = x[1]
-        return np.array([2 * x1, 2 * x2, 0]).reshape((1, 3))
+        return C
     return L, T, d, dfdx, dgdx, f, g, m, n, r
 
 
@@ -77,22 +73,9 @@ def _(copy, np):
 
 
     def dJdAlpha(
-        trooper,
-        temp_trooper,
-        alpha,
-        U,
-        T,
-        L,
-        x0,
-        UX,
-        SX,
-        VX,
-        UY,
-        SY,
-        VY,
-        gamma=0.01,
+        trooper, temp_trooper, alpha, U, T, L, x0, UX, SX, VX, UY, SY, VY
     ):
-        dJdPhi, dJdPsi = temp_trooper.compute_gradient(U, T, L, x0, gamma=gamma)
+        dJdPhi, dJdPsi = temp_trooper.compute_gradient()
         dPhidAlpha = d_geodesic(alpha, trooper.Phi, UX, SX, VX)
         dPsidAlpha = d_geodesic(alpha, trooper.Psi, UY, SY, VY)
         dJdAlpha = np.sum(dJdPhi * dPhidAlpha + dJdPsi * dPsidAlpha)
@@ -100,13 +83,11 @@ def _(copy, np):
         return dJdAlpha
 
 
-    def bisection(
-        trooper, UX, SX, VX, UY, SY, VY, U, T, L, x0, gamma=0.01, c1=0.4, c2=0.6
-    ):
-        J_left = trooper.get_cost(U, T, L, x0, gamma)
+    def bisection(trooper, UX, SX, VX, UY, SY, VY, U, T, L, x0, c1=0.4, c2=0.6):
+        J_left = trooper.get_cost()
 
         dJ_left = dJdAlpha(
-            trooper, trooper, 0, U, T, L, x0, UX, SX, VX, UY, SY, VY, gamma
+            trooper, trooper, 0, U, T, L, x0, UX, SX, VX, UY, SY, VY
         )
 
         alpha = 0
@@ -121,9 +102,7 @@ def _(copy, np):
             temp_trooper.Phi = Phi_left
             temp_trooper.Psi = Psi_left
             temp_trooper.standardize_representatives()
-            temp_trooper.update_M()
-
-            J_right = temp_trooper.get_cost(U, T, L, x0, gamma=gamma)
+            J_right = temp_trooper.get_cost()
             dJ_right = dJdAlpha(
                 trooper,
                 temp_trooper,
@@ -180,13 +159,13 @@ def _(
     r,
     troop,
 ):
-    trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx)
+    U = lambda t: np.array([1])
+    x0 = np.array([0.0, 0.0, 0.0])
+    trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx, U=U, x0=x0, T=T, L=L)
+    gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
 
-    U = lambda t: 1  # np.sin(np.pi * t)
-    x0 = np.zeros((3,))
-    gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0)
-    X = gradJ_Phi
-    Y = gradJ_Psi
+    X = gradJ_Phi.copy()
+    Y = gradJ_Psi.copy()
     stopping_criterion = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
 
     # while stopping_criterion > 1e-8:
@@ -206,7 +185,6 @@ def _(
             T,
             L,
             x0,
-            gamma=0.01,
             c1=0.1,
             c2=0.9,
         )
@@ -214,15 +192,14 @@ def _(
         X_tilde = parallel_translation(alpha, trooper.Phi, X, UX, SX, VXT.T)
         Y_tilde = parallel_translation(alpha, trooper.Psi, Y, UY, SY, VYT.T)
 
-        gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0)
+        gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
         denominator_2 = inner_product(gradJ_Phi, gradJ_Psi, X, Y)
 
         trooper.Phi = geodesic(alpha, trooper.Phi, UX, SX, VXT.T)
         trooper.Psi = geodesic(alpha, trooper.Psi, UY, SY, VYT.T)
         parity = trooper.standardize_representatives()
-        trooper.update_M()
         X_tilde[:, 0] = parity * X_tilde[:, 0]
-        gradJ_Phi, gradJ_Psi = trooper.compute_gradient(U, T, L, x0)
+        gradJ_Phi, gradJ_Psi = trooper.compute_gradient()
 
         numerator = inner_product(gradJ_Phi, gradJ_Psi, gradJ_Phi, gradJ_Psi)
         denominator_1 = inner_product(gradJ_Phi, gradJ_Psi, X_tilde, Y_tilde)
@@ -231,28 +208,12 @@ def _(
         X = gradJ_Phi + beta * X_tilde
         Y = gradJ_Psi + beta * Y_tilde
 
-        print(trooper.get_cost(U, T, L, x0))
-    return U, trooper, x0
+        # print(trooper.get_cost())
+    return
 
 
 @app.cell
-def _(L, T, U, np, plt, trooper, x0):
-    def _():
-        Y = trooper.simulate_FOM(U, T, L, x0)
-        _, Yhat = trooper.simulate_ROM(U, T, L, x0)
-        Y = np.array(Y)
-        Yhat = np.array(Yhat)
-
-        plt.plot(Y, label="FOM (n = 3)")
-        plt.plot(Yhat, label="ROM (r = 2)")
-        plt.legend()
-        plt.xlabel(r"$t$")
-        plt.ylabel(r"$y$")
-        plt.title("Simple TROOP Example")
-        plt.show()
-
-
-    _()
+def _():
     return
 
 
