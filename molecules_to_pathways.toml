@@ -1,0 +1,48 @@
+[tool.ruff]
+# Match Black's default line length
+line-length = 88
+target-version = "py311"   # change to your python version, e.g. "py310"
+
+# Always a good idea: exclude common junk
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".venv",
+  "venv",
+  "build",
+  "dist"
+]
+
+[tool.ruff.lint]
+# These are the "good value" rule groups:
+# E,F  : pycodestyle + pyflakes (core linting)
+# I    : import sorting (isort replacement)
+# UP   : pyupgrade (modernizes syntax)
+# B    : flake8-bugbear (common pitfalls)
+# SIM  : simplifications
+# C4   : unnecessary comprehensions
+# N    : pep8 naming
+# PERF : performance anti-patterns
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "N", "PERF"]
+
+# Ignore rules that are often too noisy / subjective
+ignore = [
+  "E501", # line too long (formatter handles it)
+  "N803", # argument name should be lowercase
+  "N806"  # variable in function should be lowercase
+]
+
+# Automatically fix what Ruff can fix
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests often break "real code" rules—this keeps tests comfy.
+"tests/**/*.py" = ["S101", "D", "ANN"]
+
+[tool.ruff.format]
+# Ruff formatter is Black-compatible and very fast
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
