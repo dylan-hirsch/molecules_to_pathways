@@ -3,9 +3,13 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.integrate import quad_vec
 
+atol = 1.0e-7
+rtol = 1.0e-4
+solver_method = 'RK45'
+
 class troop:
     
-    def __init__(self, n, r, d, m, f, g, Df, Dg, Phi = None, Psi = None, U = None, x0 = None, M = None, Y = None, Yhat = None, Z = None, T = 1.0, L = 101, gamma = 0.001, standardize_upon_initialization = True):
+    def __init__(self, n, r, d, m, f, g, Df, Dg, Phi = None, Psi = None, U = None, x0 = None, M = None, Y = None, Yhat = None, Z = None, T = 1.0, L = 101, gamma = 0.001):
         
         self.n = n
         self.r = r
@@ -20,8 +24,7 @@ class troop:
         self.Phi = Phi
         self.Psi = Psi
         self.M = M
-        if standardize_upon_initialization:
-            self.standardize_representatives()
+        self.standardize_representatives()
 
         if U is None:
             U = lambda t: np.zeros((self.d,))
@@ -38,7 +41,7 @@ class troop:
             self.Y = None
             self.simulate_FOM()
         else:
-            self.Y = Y
+            self.Y = Y.copy()
 
         if Yhat is None or Z is None:
             self.Yhat = None
@@ -47,6 +50,10 @@ class troop:
         else:
             self.Yhat = Yhat
             self.Z = Z
+
+        self.gradJ_Phi = None
+        self.gradJ_Psi = None
+        self.parity = None
 
 
     def standardize_representatives(self):
@@ -70,19 +77,16 @@ class troop:
         if np.linalg.norm(PsiTPsi - np.eye(self.r)) > 1e-10:
             self.Psi, _ = np.linalg.qr(self.Psi)
 
-
         PsiTPhi = self.Psi.T @ self.Phi
-        if np.linalg.det(PsiTPhi) < 0:
-            parity = -1
+        if np.linalg.slogdet(PsiTPhi)[0] < 0:
+            self.parity = -1
             self.Psi[:, 0] = -self.Psi[:, 0]
         else:
-            parity = 1
+            self.parity = 1
 
 
         if self.M is None or np.linalg.norm(self.M @ PsiTPhi - np.eye(self.r)) > 1e-10:
             self.M = np.linalg.inv(PsiTPhi)
-
-        return parity
 
     ### Simulations of FOM and ROM
 
@@ -91,9 +95,10 @@ class troop:
         sol = solve_ivp(lambda t, x: self.f(x, self.U(t)), 
                         y0 = self.x0,
                         t_span=(self.times[0], self.times[-1]),
-                        dense_output=True)
+                        t_eval=self.times,
+                        method = solver_method, atol=atol, rtol=rtol)
         
-        self.Y = lambda t: self.g(sol.sol(t))
+        self.Y = [self.g(sol.y[:, i].reshape(self.n,)) for i in range(len(self.times))] 
 
 
     def simulate_ROM(self):
@@ -102,7 +107,8 @@ class troop:
             lambda t, z: self.M @ (self.Psi.T @ self.f(self.Phi @ z, self.U(t))),
             y0=self.M @ (self.Psi.T @ self.x0),
             t_span=(self.times[0], self.times[-1]),
-            dense_output=True)
+            dense_output=True,
+            method = solver_method, atol=atol, rtol=rtol)
         self.Z = lambda t: sol.sol(t)
         self.Yhat = lambda t: self.g(self.Phi @ self.Z(t))
 
@@ -151,16 +157,14 @@ class troop:
         
     def init_grad(self):
         t = self.times[-1]
-        error = (self.Yhat(t) - self.Y(t)).reshape(self.m, 1)
+        error = (self.Yhat(t) - self.Y[-1]).reshape(self.m,)
         z = self.Z(t)
-        gradJ_Phi = self.T_adjoint_Phi(error, z)
-        gradJ_Psi = self.T_adjoint_Psi()
-
-        return gradJ_Phi, gradJ_Psi
+        self.gradJ_Phi = self.T_adjoint_Phi(error, z)
+        self.gradJ_Psi = self.T_adjoint_Psi()
 
     def init_dual(self):
         t = self.times[-1]
-        error = (self.Yhat(t) - self.Y(t)).reshape(self.m, 1)
+        error = (self.Yhat(t) - self.Y[-1]).reshape(self.m,)
         z = self.Z(t)
         p = self.H_adjoint(z) @ error
 
@@ -177,13 +181,16 @@ class troop:
     def compute_gradient(self):
 
         # Initialize the gradient ...
-        gradJ_Phi, gradJ_Psi = self.init_grad()
+        self.init_grad()
         # Compute adjoint variable at final time ... (we use p in place of lambda)
         p = self.init_dual()
 
         # For l in ...
         #for l in reversed(range(len(self.times) - 1)):
-        for tl, tlplus1 in zip(reversed(self.times[:-1]), reversed(self.times[1:])):
+        for i in range(len(self.times) - 1)[::-1]:
+            tl = self.times[i]
+            tlplus1 = self.times[i + 1]
+
             # Solve the adjoint equation ...
             dual_sol = solve_ivp(
                 lambda t, q: self.calculate_dual_dynamics(
@@ -193,94 +200,171 @@ class troop:
                 ),
                 [tlplus1, tl],
                 p,
-                dense_output=True)
+                dense_output=True,
+                method = solver_method, atol=atol, rtol=rtol)
             P = lambda t: dual_sol.sol(t)
 
             # Compute the integral component ...
-            gradJ_Phi += quad_vec(
+            self.gradJ_Phi += quad_vec(
                     lambda t: self.S_adjoint_Phi(P(t), self.Z(t), self.U(t)),
                     tl,
                     tlplus1,
                 )[0]
-            gradJ_Psi += quad_vec(
+            self.gradJ_Psi += quad_vec(
                     lambda t: self.S_adjoint_Psi(P(t), self.Z(t), self.U(t)),
                     tl,
                     tlplus1,
                 )[0]
 
             # Add lth element of the sum ...
-            error = self.Yhat(tl) - self.Y(tl)
-            gradJ_Phi += self.T_adjoint_Phi(error, self.Z(tl))
-            gradJ_Psi += self.T_adjoint_Psi()
+            error = (self.Yhat(tl) - self.Y[i]).reshape(self.m,)
+            self.gradJ_Phi += self.T_adjoint_Phi(error, self.Z(tl))
+            self.gradJ_Psi += self.T_adjoint_Psi()
 
             # Add "jump" to adjoint ...
             p = P(tl) + self.H_adjoint(self.Z(tl)) @ error
 
         # add gradient due to initial condition
-        gradJ_Phi += self.grad_z_adjoint_Phi(p, self.Z(0))
-        gradJ_Psi += self.grad_z_adjoint_Psi(p, self.Z(0))
+        self.gradJ_Phi += self.grad_z_adjoint_Phi(p, self.Z(0))
+        self.gradJ_Psi += self.grad_z_adjoint_Psi(p, self.Z(0))
 
         # normalize by trajectory length
-        gradJ_Phi = gradJ_Phi / len(self.times)
-        gradJ_Psi = gradJ_Psi / len(self.times)
+        self.gradJ_Phi /= len(self.times)
+        self.gradJ_Psi /= len(self.times)
 
         # Add regularization
-        gradJ_Phi += self.gamma * 2 * (self.Phi - self.Psi @ self.M.T)
-        gradJ_Psi += self.gamma * 2 * (self.Psi - self.Phi @ self.M)
+        self.gradJ_Phi += self.gamma * 2 * (self.Phi - self.Psi @ self.M.T)
+        self.gradJ_Psi += self.gamma * 2 * (self.Psi - self.Phi @ self.M)
 
         # Project onto tangent spaces
-        gradJ_Phi = self.project_onto_tangent_space(self.Phi, gradJ_Phi)
-        gradJ_Psi = self.project_onto_tangent_space(self.Psi, gradJ_Psi)
-
-        return gradJ_Phi, gradJ_Psi
+        self.gradJ_Phi = self.project_onto_tangent_space(self.Phi, self.gradJ_Phi)
+        self.gradJ_Psi = self.project_onto_tangent_space(self.Psi, self.gradJ_Psi)
 
     def project_onto_tangent_space(self, Theta, Upsilon):
         # Project matrix Upsilon onto the tangent space of the Grassman manifold at state Theta
         return Upsilon - Theta @ Theta.T @ Upsilon
 
     # Geodesic calculations
-    def compute_translation_along_geodesic(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
+    def inner_product(self, X1, Y1, X2, Y2):
+        return np.sum(X1 * X2) + np.sum(Y1 * Y2)
+    
+    def geodesic(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
         Phi_alpha = self.Phi @ (Vx * np.cos(alpha * Sx)) @ Vx.T + (Ux * np.sin(alpha * Sx)) @ Vx.T
         Psi_alpha = self.Psi @ (Vy * np.cos(alpha * Sy)) @ Vy.T + (Uy * np.sin(alpha * Sy)) @ Vy.T
         return Phi_alpha, Psi_alpha
-
-    def compute_d_geodesic_d_alpha(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
-        dPhi_dalpha = self.Phi @ (-Vx * np.sin(alpha * Sx) * Sx) @ Vx.T + (Ux * np.cos(alpha * Sx) * Sx) @ Vx.T
-        dPsi_dalpha = self.Psi @ (-Vy * np.sin(alpha * Sy) * Sy) @ Vy.T + (Uy * np.cos(alpha * Sy) * Sy) @ Vy.T
-        return dPhi_dalpha, dPsi_dalpha
     
-    def compute_parallel_translation(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y):
-        dPhi_dalpha, dPsi_dalpha = self.compute_d_geodesic_d_alpha(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
-        Xtilde = dPhi_dalpha + X - Ux @ Ux.T @ X
-        Ytilde = dPsi_dalpha + Y - Uy @ Uy.T @ Y
+    def parallel_translate(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y):
+        Xtilde = (-self.Phi @ (Vx * np.sin(alpha * Sx)) + Ux * np.cos(alpha * Sx)) @ Ux.T @ X + X - Ux @ Ux.T @ X
+        Ytilde = (-self.Psi @ (Vy * np.sin(alpha * Sy)) + Uy * np.cos(alpha * Sy)) @ Uy.T @ Y + Y - Uy @ Uy.T @ Y
         return Xtilde, Ytilde
 
-    def get_cost_derivative(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y):
-        #dPhi_dalpha, dPsi_dalpha = self.compute_d_geodesic_d_alpha(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
-        dPhi_dalpha, dPsi_dalpha = self.compute_parallel_translation(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
-        grad_Phi, grad_Psi = self.compute_gradient()
-        cost_derivative = np.sum(grad_Phi * dPhi_dalpha) + np.sum(grad_Psi * dPsi_dalpha)
+    def get_cost_derivative(self, X, Y):
+        self.compute_gradient()
+        cost_derivative = self.inner_product(self.gradJ_Phi, self.gradJ_Psi, X, Y)
         return cost_derivative
 
     # Gradient descent
-    def conjugate_gradient(self):
-        pass
+
+    def bisection(self, Ux, Sx, Vx, Uy, Sy, Vy, X, Y, init_step_size, c1=0.01, c2=0.1, max_step_search_iters=50):
+        alpha_trooper = self.copy()
+
+        J0 = alpha_trooper.get_cost()
+        dJ0 = alpha_trooper.get_cost_derivative(X, Y)
+
+        normalizer = np.sqrt(self.inner_product(X,Y,X,Y,))
+
+        lb = 0
+        alpha = init_step_size / normalizer
+        ub = np.inf
+
+        for _ in range(max_step_search_iters):
+            Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+            alpha_trooper.set_Phi_Psi(Phi_alpha, Psi_alpha)
+            J = alpha_trooper.get_cost()
+            if J > J0 + c1 * alpha * dJ0:
+                ub = alpha
+                alpha = 0.5 * (lb + ub)
+            else:
+                Xtilde, Ytilde = self.parallel_translate(
+                    alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
+                )
+                alpha_trooper.compute_gradient()
+
+                dJ = alpha_trooper.get_cost_derivative(Xtilde, Ytilde)
+                if dJ < c2 * dJ0:
+                    lb = alpha
+                    if ub == np.inf:
+                        alpha = 2 * lb
+                    else:
+                        alpha = 0.5 * (lb + ub)
+                else:
+                    break
+        alpha_trooper.compute_gradient()
+
+        return alpha, alpha_trooper, normalizer
+
+    def conjugate_gradient(self, max_iters=100, tol=1e-8, initial_step_size=0.01, c1=0.01, c2=0.1, max_step_search_iters=40):
+
+        self.compute_gradient()
+        X = -self.gradJ_Phi
+        Y = -self.gradJ_Psi
+
+        numerator = np.inf
+        init_step_size = initial_step_size
+        iter = 0
+        while numerator > tol and iter < max_iters:
+            Ux, Sx, VxT = np.linalg.svd(X, full_matrices=False)
+            Uy, Sy, VyT = np.linalg.svd(Y, full_matrices=False)
+            Vx = VxT.T
+            Vy = VyT.T
+
+            alpha, alpha_trooper, normalizer = self.bisection(Ux, Sx, Vx, Uy, Sy, Vy, X, Y, init_step_size, c1, c2, max_step_search_iters)
+
+            denominator_2 = self.inner_product(
+                self.gradJ_Phi, self.gradJ_Psi, X, Y
+            )
+
+            X_tilde, Y_tilde = self.parallel_translate(
+                alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
+            )
+
+            self.inherit(alpha_trooper)
+            X_tilde[:, 0] = self.parity * X_tilde[:, 0]
+
+            numerator = self.inner_product(
+                self.gradJ_Phi,
+                self.gradJ_Psi,
+                self.gradJ_Phi,
+                self.gradJ_Psi,
+            )
+            denominator_1 = self.inner_product(
+                self.gradJ_Phi, self.gradJ_Psi, X_tilde, Y_tilde
+            )
+
+            beta = numerator / (denominator_1 - denominator_2)
+
+            X = -self.gradJ_Phi + beta * X_tilde
+            Y = -self.gradJ_Psi + beta * Y_tilde
+
+            init_step_size = alpha * normalizer
+
+            iter = iter + 1
 
     # Cost functions
     def get_mse(self):
         
         error = 0.0
-        for t in self.times:
-            error += np.linalg.norm(self.Y(t) - self.Yhat(t))**2
+        for i in range(len(self.times)):
+            t = self.times[i]
+            error += np.linalg.norm(self.Y[i] - self.Yhat(t))**2
         return error / len(self.times)
     
     def get_cost(self):
-        self.simulate_ROM()
         _, logabsdet = np.linalg.slogdet(self.Psi.T @ self.Phi)
         reg = -2 * self.gamma * logabsdet
-        return self.get_mse() + reg
+        return .5 * self.get_mse() + reg
     
-    # Copier
+    # Copiers
     def copy(self):
         new_trooper = troop(
             n=self.n,
@@ -298,9 +382,20 @@ class troop:
             x0=self.x0,
             T=self.times[-1],
             L=len(self.times),
-            Y=self.Y,
+            Y=self.Y.copy(),
             Yhat=self.Yhat,
             Z=self.Z,
-            standardize_upon_initialization=False
+            M = self.M.copy(),
         )
         return new_trooper
+    
+    def inherit(self, other):
+        self.Phi = other.Phi
+        self.Psi = other.Psi
+        self.M = other.M
+        self.Y = other.Y
+        self.Yhat = other.Yhat
+        self.Z = other.Z
+        self.gradJ_Phi = other.gradJ_Phi
+        self.gradJ_Psi = other.gradJ_Psi
+        self.parity = other.parity
