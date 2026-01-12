@@ -64,10 +64,13 @@ def _(np):
 
 @app.cell
 def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
-    U = lambda t: 1  # np.array([1])
+    u_fn = lambda t: 1  # np.array([1])
     x0 = np.array([0.0, 0.0, 0.0])
 
-    trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx, U=U, x0=x0, T=T, L=L)
+    trooper = troop.Trooper(
+        n, r, d, m, f, g, dfdx, dgdx, u_fn=u_fn, x0=x0, T=T, L=L
+    )
+
     trooper.conjugate_gradient(
         max_iters=100, max_step_search_iters=40, initial_step_size=0.01
     )
@@ -76,22 +79,15 @@ def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
 
 @app.cell
 def _(plt, trooper):
-    Ys = [trooper.Yhat(t)[0] for t in trooper.times]
+    Ys = [trooper.yhat_fn(t)[0] for t in trooper.times]
     plt.plot(trooper.times, Ys)
     plt.scatter(trooper.times, trooper.Y)
     return
 
 
 @app.cell
-def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
-    U = lambda t: 1  # np.array([1])
-    x0 = np.array([0.0, 0.0, 0.0])
-
-    trooper = troop.troop(n, r, d, m, f, g, dfdx, dgdx, U=U, x0=x0, T=T, L=L)
-    trooper.conjugate_gradient(
-        max_iters=100, max_step_search_iters=40, initial_step_size=0.01
-    )
-    return (trooper,)
+def _():
+    return
 
 
 if __name__ == "__main__":

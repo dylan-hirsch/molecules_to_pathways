@@ -15,12 +15,12 @@ class Trooper:
         Dg,
         Phi=None,
         Psi=None,
-        U=None,
+        u_fn=None,
         x0=None,
         A=None,
         Y=None,
-        Yhat=None,
-        Z=None,
+        yhat_fn=None,
+        z_fn=None,
         T=1.0,
         L=101,
         gamma=0.001,
@@ -71,12 +71,16 @@ class Trooper:
         self.A = A
         self.standardize_representatives()
 
-        if U is None:
+        self.atol = atol
+        self.rtol = rtol
+        self.solver_method = solver_method
 
-            def U(_):
+        if u_fn is None:
+
+            def u_fn(_):
                 return np.zeros((self.d,))
 
-        self.U = U
+        self.u_fn = u_fn
 
         if x0 is None:
             x0 = np.zeros((self.n,))
@@ -91,13 +95,13 @@ class Trooper:
         else:
             self.Y = Y.copy()
 
-        if Yhat is None or Z is None:
-            self.Yhat = None
-            self.Z = None
+        if yhat_fn is None or z_fn is None:
+            self.yhat_fn = None
+            self.z_fn = None
             self.simulate_rom()
         else:
-            self.Yhat = Yhat
-            self.Z = Z
+            self.yhat_fn = yhat_fn
+            self.z_fn = z_fn
 
         self.gradJ_Phi = None
         self.gradJ_Psi = None
@@ -132,7 +136,7 @@ class Trooper:
 
         PsiTPhi = self.Psi.T @ self.Phi
         sign, magnitude = np.linalg.slogdet(PsiTPhi)
-        if magnitude < 1e-12:
+        if magnitude < -12:
             raise ValueError("Psi.T @ Phi is close to singular.")
         elif sign < 0:
             self.parity = -1
@@ -152,13 +156,13 @@ class Trooper:
         Simulate the full-order model (FOM) dynamics.
         """
         sol = solve_ivp(
-            lambda t, x: self.f(x, self.U(t)),
+            lambda t, x: self.f(x, self.u_fn(t)),
             y0=self.x0,
             t_span=(self.times[0], self.times[-1]),
             t_eval=self.times,
-            method=solver_method,
-            atol=atol,
-            rtol=rtol,
+            method=self.solver_method,
+            atol=self.atol,
+            rtol=self.rtol,
         )
 
         self.Y = [
@@ -177,21 +181,21 @@ class Trooper:
         Simulate the reduced-order model (ROM) dynamics.
         """
         sol = solve_ivp(
-            lambda t, z: self.A @ (self.Psi.T @ self.f(self.Phi @ z, self.U(t))),
+            lambda t, z: self.A @ (self.Psi.T @ self.f(self.Phi @ z, self.u_fn(t))),
             y0=self.A @ (self.Psi.T @ self.x0),
             t_span=(self.times[0], self.times[-1]),
             dense_output=True,
-            method=solver_method,
-            atol=atol,
-            rtol=rtol,
+            method=self.solver_method,
+            atol=self.atol,
+            rtol=self.rtol,
         )
-        self.Z = lambda t: sol.sol(t)
-        self.Yhat = lambda t: self.g(self.Phi @ self.Z(t))
+        self.z_fn = lambda t: sol.sol(t)
+        self.yhat_fn = lambda t: self.g(self.Phi @ self.z_fn(t))
 
     ## Setter
-    def set_Phi_Psi(self, Phi, Psi):
+    def set_phi_psi(self, Phi, Psi):
         """
-        Docstring for set_Phi_Psi
+        Docstring for set_phi_psi
 
         Set new values for Phi and Psi,
         then standardize them and resimulate the ROM.
@@ -203,11 +207,11 @@ class Trooper:
 
     ### Adjoint calculations
 
-    def F_adjoint(self, z, u):
+    def f_adjoint(self, z, u):
         df_tilde_dz = self.A @ self.Psi.T @ self.Df(self.Phi @ z, u) @ self.Phi
         return df_tilde_dz.T
 
-    def S_adjoint_Phi(self, v, z, u):
+    def s_adjoint_phi(self, v, z, u):
         x = self.Phi @ z
         f_tilde = self.A @ self.Psi.T @ self.f(x, u)
         return self.Df(x, u).T @ self.Psi @ self.A.T @ v.reshape(
@@ -216,7 +220,7 @@ class Trooper:
             (self.r, 1)
         ) @ f_tilde.reshape((1, self.r))
 
-    def S_adjoint_Psi(self, v, z, u):
+    def s_adjoint_psi(self, v, z, u):
         x = self.Phi @ z
         f_tilde = self.A @ self.Psi.T @ self.f(x, u)
 
@@ -224,22 +228,22 @@ class Trooper:
             v.reshape((1, self.r)) @ self.A
         )
 
-    def H_adjoint(self, z):
+    def h_adjoint(self, z):
         H = self.Dg(self.Phi @ z) @ self.Phi
         return H.T
 
-    def T_adjoint_Phi(self, w, z):
+    def t_adjoint_phi(self, w, z):
         return (self.Dg(self.Phi @ z).T @ w.reshape((self.m, 1))) @ z.reshape(
             (1, self.r)
         )
 
-    def T_adjoint_Psi(self):
+    def t_adjoint_psi(self):
         return np.zeros((self.n, self.r))
 
-    def grad_z_adjoint_Phi(self, v, z):
+    def grad_z_adjoint_phi(self, v, z):
         return -self.Psi @ self.A.T @ v.reshape((self.r, 1)) @ z.reshape((1, self.r))
 
-    def grad_z_adjoint_Psi(self, v, z):
+    def grad_z_adjoint_psi(self, v, z):
         return (
             (self.x0 - self.Phi @ z).reshape((self.n, 1))
             @ v.reshape((1, self.r))
@@ -256,27 +260,26 @@ class Trooper:
         used in the adjoint-based gradient computation."""
 
         t = self.times[-1]
-        error = (self.Yhat(t) - self.Y[-1]).reshape(
+        error = (self.yhat_fn(t) - self.Y[-1]).reshape(
             self.m,
         )
-        z = self.Z(t)
-        self.gradJ_Phi = self.T_adjoint_Phi(error, z)
-        self.gradJ_Psi = self.T_adjoint_Psi()
+        z = self.z_fn(t)
+        self.gradJ_Phi = self.t_adjoint_phi(error, z)
+        self.gradJ_Psi = self.t_adjoint_psi()
 
     def init_dual(self):
         t = self.times[-1]
-        error = (self.Yhat(t) - self.Y[-1]).reshape(
+        error = (self.yhat_fn(t) - self.Y[-1]).reshape(
             self.m,
         )
-        z = self.Z(t)
-        p = self.H_adjoint(z) @ error
-
+        z = self.z_fn(t)
+        p = self.h_adjoint(z) @ error
         return p.reshape((self.r,))
 
     ### Dual dynamics
 
     def calculate_dual_dynamics(self, p, z, u):
-        dp = -self.F_adjoint(z, u) @ p
+        dp = -self.f_adjoint(z, u) @ p
         return dp
 
     ### Calculate gradients
@@ -303,45 +306,44 @@ class Trooper:
             dual_sol = solve_ivp(
                 lambda t, q: self.calculate_dual_dynamics(
                     q,
-                    self.Z(t),
-                    self.U(t),
+                    self.z_fn(t),
+                    self.u_fn(t),
                 ),
                 [tlplus1, tl],
                 p,
                 dense_output=True,
-                method=solver_method,
-                atol=atol,
-                rtol=rtol,
+                method=self.solver_method,
+                atol=self.atol,
+                rtol=self.rtol,
             )
 
-            def P(t, sol=dual_sol):
+            def p_fn(t, sol=dual_sol):
                 return sol.sol(t)
 
             # Compute the integral component ...
             self.gradJ_Phi += quad_vec(
-                lambda t: self.S_adjoint_Phi(P(t), self.Z(t), self.U(t)),
+                lambda t: self.s_adjoint_phi(p_fn(t), self.z_fn(t), self.u_fn(t)),
                 tl,
                 tlplus1,
             )[0]
             self.gradJ_Psi += quad_vec(
-                lambda t: self.S_adjoint_Psi(P(t), self.Z(t), self.U(t)),
+                lambda t: self.s_adjoint_psi(p_fn(t), self.z_fn(t), self.u_fn(t)),
                 tl,
                 tlplus1,
             )[0]
 
             # Add lth element of the sum ...
-            error = (self.Yhat(tl) - self.Y[i]).reshape(
+            error = (self.yhat_fn(tl) - self.Y[i]).reshape(
                 self.m,
             )
-            self.gradJ_Phi += self.T_adjoint_Phi(error, self.Z(tl))
-            self.gradJ_Psi += self.T_adjoint_Psi()
-
+            self.gradJ_Phi += self.t_adjoint_phi(error, self.z_fn(tl))
+            self.gradJ_Psi += self.t_adjoint_psi()
             # Add "jump" to adjoint ...
-            p = P(tl) + self.H_adjoint(self.Z(tl)) @ error
+            p = p_fn(tl) + self.h_adjoint(self.z_fn(tl)) @ error
 
         # add gradient due to initial condition
-        self.gradJ_Phi += self.grad_z_adjoint_Phi(p, self.Z(0))
-        self.gradJ_Psi += self.grad_z_adjoint_Psi(p, self.Z(0))
+        self.gradJ_Phi += self.grad_z_adjoint_phi(p, self.z_fn(0))
+        self.gradJ_Psi += self.grad_z_adjoint_psi(p, self.z_fn(0))
 
         # normalize by trajectory length
         self.gradJ_Phi /= len(self.times)
@@ -465,7 +467,7 @@ class Trooper:
 
         for _ in range(max_step_search_iters):
             Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
-            alpha_trooper.set_Phi_Psi(Phi_alpha, Psi_alpha)
+            alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
             J = alpha_trooper.get_cost()
             if J0 + c1 * alpha * dJ0 < J:
                 ub = alpha
@@ -556,7 +558,7 @@ class Trooper:
         error = 0.0
         for i in range(len(self.times)):
             t = self.times[i]
-            error += np.linalg.norm(self.Y[i] - self.Yhat(t)) ** 2
+            error += np.linalg.norm(self.Y[i] - self.yhat_fn(t)) ** 2
         return error / len(self.times)
 
     def get_cost(self):
@@ -578,24 +580,27 @@ class Trooper:
             Phi=self.Phi,
             Psi=self.Psi,
             gamma=self.gamma,
-            U=self.U,
+            u_fn=self.u_fn,
             x0=self.x0,
             T=self.times[-1],
             L=len(self.times),
             Y=self.Y,
-            Yhat=self.Yhat,
-            Z=self.Z,
-            M=self.A,
+            yhat_fn=self.yhat_fn,
+            z_fn=self.z_fn,
+            A=self.A,
+            atol=self.atol,
+            rtol=self.rtol,
+            solver_method=self.solver_method,
         )
         return new_trooper
 
     def inherit(self, other):
         self.Phi = other.Phi
         self.Psi = other.Psi
-        self.A = other.M
+        self.A = other.A
         self.Y = other.Y
-        self.Yhat = other.Yhat
-        self.Z = other.Z
+        self.yhat_fn = other.yhat_fn
+        self.z_fn = other.z_fn
         self.gradJ_Phi = other.gradJ_Phi
         self.gradJ_Psi = other.gradJ_Psi
         self.parity = other.parity
