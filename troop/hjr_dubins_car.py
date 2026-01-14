@@ -13,8 +13,8 @@ def _():
     import hj_reachability as hj
     import numpy as np
 
-    import dubins_car
-    import troop
+    from dynamics.dubins_car import DubinsReducedModel
+    from reducers.troop import Trooper
 
     from scipy import integrate as ode
     from scipy.optimize import root_scalar
@@ -27,14 +27,14 @@ def _():
 
     import random
 
-    random.seed(1)
-    np.random.seed(1)
+    random.seed(2026)
+    np.random.seed(2026)
 
     plt.rcParams["text.usetex"] = False
     plt.rcParams["mathtext.fontset"] = "cm"
     font = {"size": 15}
     plt.rc("font", **font)
-    return dubins_car, hj, jnp, np, ode, plt, spline, troop
+    return DubinsReducedModel, Trooper, hj, jnp, np, ode, plt, spline
 
 
 @app.cell
@@ -46,7 +46,7 @@ def _(np):
     m = 1  # output size
 
     L = 11  # number of time steps
-    T = 5  # final time
+    T = 10  # final time
 
 
     def f(x, u):
@@ -93,18 +93,30 @@ def _(f, np):
 
 
 @app.cell
-def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
-    u_fn0 = lambda t: 0  # np.array([1])
+def _(L, T, Trooper, d, dfdx, dgdx, f, g, m, n, np, r):
+    u_fn0 = lambda t: 1  # np.array([1])
     x0 = np.array([0.0, 0.0, 0.0])  # initial state
 
-    trooper = troop.Trooper(
-        n, r, d, m, f, g, dfdx, dgdx, u_fn=u_fn0, x0=x0, T=T, L=L
-    )
+    trooper = Trooper(n, r, d, m, f, g, dfdx, dgdx, u_fn=u_fn0, x0=x0, T=T, L=L)
     return trooper, u_fn0, x0
 
 
 @app.cell
-def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
+def _(
+    DubinsReducedModel,
+    T,
+    dx,
+    f,
+    hj,
+    jnp,
+    np,
+    ode,
+    r,
+    spline,
+    trooper,
+    u_fn0,
+    x0,
+):
     ts = np.linspace(-T, 0, 100)
     sol0 = ode.solve_ivp(
         lambda t, x: f(x, u_fn0(x)),
@@ -122,11 +134,11 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
     for iter in range(5):
         print("Iteration: " + str(iter))
 
-        trooper.conjugate_gradient(verbose=True, max_iters=1000)
+        trooper.conjugate_gradient(verbose=True, max_iters=100)
 
         Phi = trooper.Phi
         Psi = trooper.Psi
-        model = dubins_car.ReducedModel(rank=r, Phi=Phi, Psi=Psi, x_star=x0)
+        model = DubinsReducedModel(rank=r, Phi=Phi, Psi=Psi, x_star=x0)
         zmax = np.ones((r,))
 
         grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
@@ -186,6 +198,7 @@ def _(np, plt, records, ts):
         for state_index, label in zip(range(3), labels):
             ax1.plot(ts, [state_function(t)[state_index] for t in ts], label=label)
         ax1.hlines(-np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
+        ax1.hlines(+3 * np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
         ax1.set_ylim([-10, 10])
         ax1.legend()
         ax1.set_xlabel(r"$t$")
