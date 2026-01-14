@@ -19,6 +19,7 @@ def _():
     from scipy import integrate as ode
     from scipy.optimize import root_scalar
     from scipy.interpolate import make_interp_spline as spline
+    from scipy.integrate import quad_vec, solve_ivp
 
     from IPython.display import HTML
     import matplotlib.animation as anim
@@ -46,7 +47,7 @@ def _(np):
     m = 1  # output size
 
     L = 11  # number of time steps
-    T = 10  # final time
+    T = 5  # final time
 
 
     def f(x, u):
@@ -94,7 +95,7 @@ def _(f, np):
 
 @app.cell
 def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
-    u_fn0 = lambda t: 1  # np.array([1])
+    u_fn0 = lambda t: 0  # np.array([1])
     x0 = np.array([0.0, 0.0, 0.0])  # initial state
 
     trooper = troop.Trooper(
@@ -119,10 +120,10 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
     records = [(sol0.sol, [u_fn0(t) for t in ts])]
 
 
-    for iter in range(5):
+    for iter in range(2):
         print("Iteration: " + str(iter))
 
-        trooper.conjugate_gradient(verbose=True, max_iters=50, profile=False)
+        trooper.conjugate_gradient(verbose=True, max_iters=1000)
 
         Phi = trooper.Phi
         Psi = trooper.Psi
@@ -169,34 +170,22 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
             us.append(u)
         us = np.array(us)
 
-        u_fn = spline(ts, us)
+        u_fn = spline(ts + T, us)
         trooper.set_u_fn(u_fn)
 
         records.append((sol.sol, us))
-    return records, ts
+    return ts, us
 
 
 @app.cell
-def _(np, plt, records, ts):
-    fig, axs = plt.subplots(6, 2, figsize=(10, 10))
-    for record, ax1, ax2 in zip(records, axs[:, 0], axs[:, 1]):
-        state_function = record[0]
-        inputs = record[1]
-        labels = [r"$x$", r"$y$", r"$\theta$"]
-        for state_index, label in zip(range(3), labels):
-            ax1.plot(ts, [state_function(t)[state_index] for t in ts], label=label)
-        ax1.hlines(-np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        ax1.hlines(+3 * np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        ax1.set_ylim([-10, 10])
-        ax1.legend()
-        ax1.set_xlabel(r"$t$")
-        ax1.set_ylabel(r"$\mathbf{x}(t)$")
-        ax2.plot(ts, inputs)
-        ax2.set_ylim([-1.1, 1.1])
-        ax2.set_xlabel(r"$t$")
-        ax2.set_ylabel(r"$u(t)$")
-    plt.tight_layout()
-    plt.show()
+def _(T, plt, trooper, ts, us):
+    print(us)
+    plt.plot(ts, [trooper.u_fn(t) for t in ts + T])
+    return
+
+
+@app.cell
+def _():
     return
 
 

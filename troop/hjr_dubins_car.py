@@ -27,8 +27,8 @@ def _():
 
     import random
 
-    random.seed(25)
-    np.random.seed(25)
+    random.seed(1)
+    np.random.seed(1)
 
     plt.rcParams["text.usetex"] = False
     plt.rcParams["mathtext.fontset"] = "cm"
@@ -119,7 +119,7 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
     records = [(sol0.sol, [u_fn0(t) for t in ts])]
 
 
-    for iter in range(2):
+    for iter in range(5):
         print("Iteration: " + str(iter))
 
         trooper.conjugate_gradient(verbose=True, max_iters=1000)
@@ -169,7 +169,7 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
             us.append(u)
         us = np.array(us)
 
-        u_fn = spline(ts, us)
+        u_fn = spline(ts + T, us)
         trooper.set_u_fn(u_fn)
 
         records.append((sol.sol, us))
@@ -178,7 +178,7 @@ def _(T, dubins_car, dx, f, hj, jnp, np, ode, r, spline, trooper, u_fn0, x0):
 
 @app.cell
 def _(np, plt, records, ts):
-    fig, axs = plt.subplots(3, 2, figsize=(10, 10))
+    fig, axs = plt.subplots(6, 2, figsize=(10, 20))
     for record, ax1, ax2 in zip(records, axs[:, 0], axs[:, 1]):
         state_function = record[0]
         inputs = record[1]
