@@ -11,10 +11,7 @@ def _():
     import numpy as np
     import random
 
-    import dynamics
     import troop
-
-    import time
 
     random.seed(25)
     np.random.seed(25)
@@ -72,7 +69,10 @@ def _(L, T, d, dfdx, dgdx, f, g, m, n, np, r, troop):
     )
 
     trooper.conjugate_gradient(
-        max_iters=100, max_step_search_iters=40, initial_step_size=0.01
+        max_iters=100,
+        max_step_search_iters=40,
+        initial_step_size=0.01,
+        verbose=True,
     )
     return (trooper,)
 

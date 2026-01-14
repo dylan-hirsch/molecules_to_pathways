@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 from scipy.integrate import quad_vec, solve_ivp
 
@@ -192,7 +194,7 @@ class Trooper:
         self.z_fn = lambda t: sol.sol(t)
         self.yhat_fn = lambda t: self.g(self.Phi @ self.z_fn(t))
 
-    ## Setter
+    ## Setters
     def set_phi_psi(self, Phi, Psi):
         """
         Docstring for set_phi_psi
@@ -203,6 +205,17 @@ class Trooper:
         self.Phi = Phi
         self.Psi = Psi
         self.standardize_representatives()
+        self.simulate_rom()
+
+    def set_u_fn(self, u_fn):
+        """
+        Docstring for set_u_fn
+
+        Set new values for u_fn,
+        then resimulate the FOM.
+        """
+        self.u_fn = u_fn
+        self.simulate_fom()
         self.simulate_rom()
 
     ### Adjoint calculations
@@ -376,6 +389,16 @@ class Trooper:
 
         return np.sum(X1 * X2) + np.sum(Y1 * Y2)
 
+    def gradient_norm(self):
+        return np.sqrt(
+            self.inner_product(
+                self.gradJ_Phi,
+                self.gradJ_Psi,
+                self.gradJ_Phi,
+                self.gradJ_Psi,
+            )
+        )
+
     def geodesic(self, alpha, Ux, Sx, Vx, Uy, Sy, Vy):
         """
         Docstring for geodesic
@@ -446,6 +469,114 @@ class Trooper:
         c1=0.01,
         c2=0.1,
         max_step_search_iters=50,
+        verbose=False,
+        profile=False,
+    ):
+        alpha_trooper = self.copy()
+
+        J0 = alpha_trooper.get_cost()
+        if profile:
+            print("J0: " + str(J0))
+
+        dJ0 = alpha_trooper.get_cost_derivative(X, Y)
+        if profile:
+            print("dJ0 magnitude: " + str(np.linalg.norm(dJ0)))
+
+        normalizer = np.sqrt(
+            self.inner_product(
+                X,
+                Y,
+                X,
+                Y,
+            )
+        )
+
+        if profile:
+            print("Normalizer: " + str(normalizer))
+
+        lb = 0
+        alpha = init_step_size / normalizer
+        ub = np.inf
+        if verbose:
+            print("bisection iteration: 0")
+            print("Lower bound: " + str(lb))
+            print("Step size: " + str(alpha))
+            print("Upper bound: " + str(ub))
+
+        for _ in range(max_step_search_iters):
+            start = time.time()
+            Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+            end = time.time()
+            if profile:
+                print("Geodesic calculation: " + str(end - start))
+
+            start = time.time()
+            alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
+            end = time.time()
+            if profile:
+                print("Set phi psi: " + str(end - start))
+
+            start = time.time()
+            J = alpha_trooper.get_cost()
+            end = time.time()
+            if profile:
+                print("Get cost: " + str(end - start))
+
+            if J0 + c1 * alpha * dJ0 < J:
+                ub = alpha
+                alpha = 0.5 * (lb + ub)
+            else:
+                start = time.time()
+                Xtilde, Ytilde = self.parallel_translate(
+                    alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
+                )
+                end = time.time()
+                if profile:
+                    print("Parallel Tanslate: " + str(end - start))
+
+                start = time.time()
+                alpha_trooper.compute_gradient()
+                end = time.time()
+                if profile:
+                    print("Compute gradient: " + str(end - start))
+
+                start = time.time()
+                dJ = alpha_trooper.get_cost_derivative(Xtilde, Ytilde)
+                end = time.time()
+                if profile:
+                    print("Get cost derivative: " + str(end - start))
+
+                if dJ < c2 * dJ0:
+                    lb = alpha
+                    alpha = 2 * lb if ub == np.inf else 0.5 * (lb + ub)
+                else:
+                    break
+            if verbose:
+                print("bisection iteration: " + str(_))
+                print("Lower bound: " + str(lb))
+                print("Step size: " + str(alpha))
+                print("Upper bound: " + str(ub))
+
+        alpha_trooper.compute_gradient()
+
+        return alpha, alpha_trooper, normalizer
+
+    def backtracking(
+        self,
+        Ux,
+        Sx,
+        Vx,
+        Uy,
+        Sy,
+        Vy,
+        X,
+        Y,
+        init_step_size,
+        c1=0.1,
+        c2=0.5,
+        max_step_search_iters=50,
+        verbose=False,
+        profile=False,
     ):
         alpha_trooper = self.copy()
 
@@ -461,29 +592,29 @@ class Trooper:
             )
         )
 
-        lb = 0
-        alpha = init_step_size / normalizer
-        ub = np.inf
+        alpha = 1 / normalizer
 
         for _ in range(max_step_search_iters):
             Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
-            alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
-            J = alpha_trooper.get_cost()
-            if J0 + c1 * alpha * dJ0 < J:
-                ub = alpha
-                alpha = 0.5 * (lb + ub)
-            else:
-                Xtilde, Ytilde = self.parallel_translate(
-                    alpha, Ux, Sx, Vx, Uy, Sy, Vy, X, Y
-                )
-                alpha_trooper.compute_gradient()
 
-                dJ = alpha_trooper.get_cost_derivative(Xtilde, Ytilde)
-                if dJ < c2 * dJ0:
-                    lb = alpha
-                    alpha = 2 * lb if ub == np.inf else 0.5 * (lb + ub)
-                else:
-                    break
+            alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
+
+            J = alpha_trooper.get_cost()
+
+            if J0 + c1 * alpha * dJ0 < J:
+                alpha *= c2
+            else:
+                break
+        if verbose:
+            print(
+                "cost: "
+                + str(J0)
+                + "; dJ0: "
+                + str(dJ0)
+                + "; backtracking steps: "
+                + str(_)
+            )
+
         alpha_trooper.compute_gradient()
 
         return alpha, alpha_trooper, normalizer
@@ -491,26 +622,31 @@ class Trooper:
     def conjugate_gradient(
         self,
         max_iters=100,
-        tol=1e-8,
+        tol=1e-4,
         initial_step_size=0.01,
-        c1=0.01,
-        c2=0.1,
-        max_step_search_iters=40,
+        c1=0.1,
+        c2=0.5,
+        max_step_search_iters=40,  # used to be 40
+        verbose=False,
+        profile=False,
     ):
         self.compute_gradient()
+        gradient_norm = self.gradient_norm()
         X = -self.gradJ_Phi
         Y = -self.gradJ_Psi
 
-        numerator = np.inf
         init_step_size = initial_step_size
         iter = 0
-        while numerator > tol and iter < max_iters:
+
+        print("Initial cost: " + str(self.get_cost()))
+        print("Initial gradient norm: " + str(gradient_norm))
+        while gradient_norm > tol and iter < max_iters:
             Ux, Sx, VxT = np.linalg.svd(X, full_matrices=False)
             Uy, Sy, VyT = np.linalg.svd(Y, full_matrices=False)
             Vx = VxT.T
             Vy = VyT.T
 
-            alpha, alpha_trooper, normalizer = self.bisection(
+            alpha, alpha_trooper, normalizer = self.backtracking(
                 Ux,
                 Sx,
                 Vx,
@@ -523,6 +659,8 @@ class Trooper:
                 c1,
                 c2,
                 max_step_search_iters,
+                verbose=verbose,
+                profile=profile,
             )
 
             denominator_2 = self.inner_product(self.gradJ_Phi, self.gradJ_Psi, X, Y)
@@ -532,19 +670,15 @@ class Trooper:
             )
 
             self.inherit(alpha_trooper)
+
             X_tilde[:, 0] = self.parity * X_tilde[:, 0]
 
-            numerator = self.inner_product(
-                self.gradJ_Phi,
-                self.gradJ_Psi,
-                self.gradJ_Phi,
-                self.gradJ_Psi,
-            )
             denominator_1 = self.inner_product(
                 self.gradJ_Phi, self.gradJ_Psi, X_tilde, Y_tilde
             )
 
-            beta = numerator / (denominator_1 - denominator_2)
+            gradient_norm = self.gradient_norm()
+            beta = gradient_norm**2 / (denominator_1 - denominator_2)
 
             X = -self.gradJ_Phi + beta * X_tilde
             Y = -self.gradJ_Psi + beta * Y_tilde
@@ -552,6 +686,8 @@ class Trooper:
             init_step_size = alpha * normalizer
 
             iter = iter + 1
+        print("Final cost: " + str(self.get_cost()))
+        print("Final gradient norm: " + str(gradient_norm))
 
     # Cost functions
     def get_mse(self):
