@@ -46,7 +46,7 @@ def _(np):
     m = 1  # output size
 
     L = 11  # number of time steps
-    T = 10  # final time
+    T = 5  # final time
 
 
     def f(x, u):
@@ -59,7 +59,7 @@ def _(np):
     def g(x):
         x1 = x[0]
         x2 = x[1]
-        return np.array([x2]).reshape((1,))
+        return np.array([-x1 - x2]).reshape((1,))
 
 
     def dfdx(x, u):
@@ -74,7 +74,7 @@ def _(np):
     def dgdx(x):
         x1 = x[0]
         x2 = x[1]
-        return np.array([0, 1, 0]).reshape((1, 3))
+        return np.array([-1, -1, 0]).reshape((1, 3))
     return L, T, d, dfdx, dgdx, f, g, m, n, r
 
 
@@ -151,7 +151,7 @@ def _(
         )
 
         xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states) + x0
-        l = xgrid[..., 1]
+        l = -xgrid[..., 0] + -xgrid[..., 1]
 
         times = np.linspace(0.0, -T, 51)
         solver_settings = hj.SolverSettings.with_accuracy("very_high")
@@ -198,7 +198,9 @@ def _(np, plt, records, ts):
         for state_index, label in zip(range(3), labels):
             ax1.plot(ts, [state_function(t)[state_index] for t in ts], label=label)
         ax1.hlines(-np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
+        ax1.hlines(0, min(ts), max(ts), linestyle="--", colors="k")
         ax1.hlines(+3 * np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
+        ax1.hlines(np.pi / 4, min(ts), max(ts), linestyle="--", colors="k")
         ax1.set_ylim([-10, 10])
         ax1.legend()
         ax1.set_xlabel(r"$t$")
@@ -209,11 +211,6 @@ def _(np, plt, records, ts):
         ax2.set_ylabel(r"$u(t)$")
     plt.tight_layout()
     plt.show()
-    return
-
-
-@app.cell
-def _():
     return
 
 

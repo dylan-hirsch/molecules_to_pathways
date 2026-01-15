@@ -2,19 +2,20 @@ import jax.numpy as jnp
 from hj_reachability import dynamics, sets
 
 
-class ReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
+class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(
         self,
+        A,
+        B,
         Phi,
         Psi,
-        x_star,
         control_mode="min",
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
         rank=2,
-        uMax=0.0,
-        uMin=-1.0,
+        uMax=+1.0,
+        uMin=0.0,
         dMax=0.00,
         dMin=0.00,
     ):
@@ -22,14 +23,14 @@ class ReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
-        self.x_star = x_star
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
         self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
         self.rank = rank
 
         if control_space is None:
-            control_space = sets.Box(jnp.array([self.uMin]), jnp.array([self.uMax]))
+            # control_space = sets.Ball(jnp.array([self.uMin]), jnp.array([self.uMax]))
+            control_space = sets.Ball(jnp.array[], jnp.array([self.uMin]), jnp.array([self.uMax]))
         if disturbance_space is None:
             disturbance_space = sets.Box(
                 jnp.array([self.dMin, self.dMin, self.dMin]),
@@ -40,7 +41,7 @@ class ReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         )
 
     def open_loop_dynamics(self, state, time):
-        xstate = self.Phi @ state.reshape([self.rank, 1]) + self.x_star
+        xstate = self.Phi @ state.reshape([self.rank, 1])
         x, y, theta = xstate
         x = x[0]
         y = y[0]
