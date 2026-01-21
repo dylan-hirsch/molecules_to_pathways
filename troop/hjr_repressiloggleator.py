@@ -11,9 +11,11 @@ def _():
     import jax
     import jax.numpy as jnp
     import hj_reachability as hj
-    import numpy as np
 
-    from dynamics.dubins_car import DubinsReducedModel
+    import numpy as np
+    import scipy as sp
+
+    from dynamics.repressiloggleator import RepressiloggleatorReducedModel
     from reducers.troop import Trooper
 
     from scipy import integrate as ode
@@ -34,53 +36,114 @@ def _():
     plt.rcParams["mathtext.fontset"] = "cm"
     font = {"size": 15}
     plt.rc("font", **font)
-    return DubinsReducedModel, Trooper, hj, jnp, np, ode, plt, spline
+    return (
+        RepressiloggleatorReducedModel,
+        Trooper,
+        hj,
+        jnp,
+        np,
+        ode,
+        plt,
+        spline,
+    )
 
 
 @app.cell
 def _(np):
-    n = 3  # FOM size
-    r = 2  # ROM size
+    n = 5  # FOM size
+    r = 3  # ROM size
 
     d = 1  # input size
     m = 1  # output size
 
     L = 11  # number of time steps
-    T = 5  # final time
+    T = 10  # final time
+
+    K1 = 0.25
+    K2 = 0.25
+    K3 = 0.25
+    K4 = 0.25
+    K5 = 0.25
+
+    n1 = 4.0
+    n2 = 4.0
+    n3 = 4.0
+    n4 = 2.0
+    n5 = 2.0
+
+    Ks = [K1, K2, K3, K4, K5]
+    ns = [n1, n2, n3, n4, n5]
+
+
+    def mm(x, K, n):
+        return 1.0 / (1.0 + (x / K) ** n)
+
+
+    def dmmdx(x, K, n):
+        return -n / K * (x / K) ** (n - 1) / (1.0 + (x / K) ** n) ** 2
 
 
     def f(x, u):
-        theta = x[2]
-        return np.array([np.cos(theta), np.sin(theta), u]).reshape((3,))
+        x1 = x[0]
+        x2 = x[1]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+
+        return np.array(
+            [
+                mm(x3, K3, n3) - x1,
+                mm(x1, K1, n1) - x2,
+                mm(x2, K2, n2) - x3,
+                mm(x5, K5, n5) - x4 + u * mm(x2, K2, n2),
+                mm(x4, K4, n4) - x5 + u * mm(x3, K3, n3),
+            ]
+        ).reshape((5,))
 
 
     def g(x):
         x1 = x[0]
         x2 = x[1]
-        return np.array([-x1 - x2]).reshape((1,))
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+        return np.array([x4 - x5]).reshape(
+            1,
+        )
 
 
     def dfdx(x, u):
         x1 = x[0]
         x2 = x[1]
-        theta = x[2]
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
         return np.array(
-            [[0, 0, -np.sin(theta)], [0, 0, np.cos(theta)], [0, 0, 0]]
-        ).reshape((3, 3))
+            [
+                [-1, 0, dmmdx(x3, K3, n3), 0, 0],
+                [dmmdx(x1, K1, n1), -1, 0, 0, 0],
+                [0, dmmdx(x2, K2, n2), -1, 0, 0],
+                [0, u * dmmdx(x2, K2, n2), 0, -1, dmmdx(x5, K5, n5)],
+                [0, 0, u * dmmdx(x3, K3, n3), dmmdx(x4, K4, n4), -1],
+            ]
+        ).reshape((5, 5))
 
 
     def dgdx(x):
         x1 = x[0]
         x2 = x[1]
-        return np.array([-1, -1, 0]).reshape((1, 3))
-    return L, T, d, dfdx, dgdx, f, g, m, n, r
+        x3 = x[2]
+        x4 = x[3]
+        x5 = x[4]
+        return np.array([0, 0, 0, 1, -1]).reshape((1, 5))
+    return Ks, L, T, d, dfdx, dgdx, f, g, m, n, ns, r
 
 
 @app.cell
 def _(f, np):
     def dx(t, x, grad_valuess, grid, model, times):
         x = np.array(x).reshape([len(x)])
-        z = model.Derivative_Projection @ (x - model.x_star)
+        z = model.Derivative_Projection @ x
 
         i = np.argmin(np.abs(times - t))
         grad_value = grid.interpolate(grad_valuess[i], state=z)
@@ -92,8 +155,9 @@ def _(f, np):
 
 @app.cell
 def _(L, T, Trooper, d, dfdx, dgdx, f, g, m, n, np, r):
-    u_fn0 = lambda t: 1  # np.array([1])
-    x0 = np.array([0.0, 0.0, 0.0])  # initial state
+    u_fn0 = lambda t: 1
+
+    x0 = np.array([0.2, 0.2, 0.6, 1.0, 0.0])  # initial state
 
     trooper = Trooper(n, r, d, m, f, g, dfdx, dgdx, u_fn=u_fn0, x0=x0, T=T, L=L)
     return trooper, u_fn0, x0
@@ -101,13 +165,15 @@ def _(L, T, Trooper, d, dfdx, dgdx, f, g, m, n, np, r):
 
 @app.cell
 def _(
-    DubinsReducedModel,
+    Ks,
+    RepressiloggleatorReducedModel,
     T,
     dx,
     f,
     hj,
     jnp,
     np,
+    ns,
     ode,
     r,
     spline,
@@ -129,28 +195,30 @@ def _(
     records = [(sol0.sol, [u_fn0(t) for t in ts])]
 
 
-    for iter in range(5):
+    for iter in range(10):
         print("Iteration: " + str(iter))
 
         trooper.conjugate_gradient(verbose=True, max_iters=100)
 
         Phi = trooper.Phi
         Psi = trooper.Psi
-        model = DubinsReducedModel(rank=r, Phi=Phi, Psi=Psi, x_star=x0)
+        model = RepressiloggleatorReducedModel(
+            Ks=Ks, ns=ns, rank=r, Phi=Phi, Psi=Psi
+        )
 
         zmax = np.ones((r,))
 
         grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
             hj.sets.Box(
-                -1.5 * 15 * np.abs(zmax),
-                1.5 * 15 * np.abs(zmax),
+                -2.5 * 1 * np.abs(zmax),
+                2.5 * 1 * np.abs(zmax),
             ),
-            [257 for _ in range(r)],
+            [51 for _ in range(r)],
             periodic_dims=None,
         )
 
-        xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states) + x0
-        l = -xgrid[..., 0] + -xgrid[..., 1]
+        xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states)
+        l = xgrid[..., 3] - xgrid[..., 4]
 
         times = np.linspace(0.0, -T, 51)
         solver_settings = hj.SolverSettings.with_accuracy("very_high")
@@ -171,9 +239,9 @@ def _(
         us = []
         for t in ts:
             x = np.array(sol.sol(t)).reshape(
-                3,
+                5,
             )
-            z = model.Derivative_Projection @ (x - model.x_star)
+            z = model.Derivative_Projection @ x
             j = np.argmin(np.abs(times - t))
             grad_value = grid.interpolate(grad_valuess[j], state=z)
             u = model.optimal_control(z, t, grad_value)[0]
@@ -181,26 +249,21 @@ def _(
         us = np.array(us)
 
         u_fn = spline(ts + T, us)
-        trooper.set_u_fn(u_fn)
-
+        trooper.set_u_fn(lambda t: u_fn(t))
         records.append((sol.sol, us))
     return records, ts
 
 
 @app.cell
-def _(np, plt, records, ts):
-    fig, axs = plt.subplots(6, 2, figsize=(10, 20))
+def _(plt, records, ts):
+    fig, axs = plt.subplots(11, 2, figsize=(10, 40))
     for record, ax1, ax2 in zip(records, axs[:, 0], axs[:, 1]):
         state_function = record[0]
         inputs = record[1]
-        labels = [r"$x$", r"$y$", r"$\theta$"]
-        for state_index, label in zip(range(3), labels):
+        labels = [r"$A$", r"$B$", r"$C$", r"$X$", r"$Y$"]
+        for state_index, label in zip(range(5), labels):
             ax1.plot(ts, [state_function(t)[state_index] for t in ts], label=label)
-        # ax1.hlines(-np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        # ax1.hlines(0, min(ts), max(ts), linestyle="--", colors="k")
-        # ax1.hlines(+3 * np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        ax1.hlines(np.pi / 4, min(ts), max(ts), linestyle="--", colors="k")
-        ax1.set_ylim([-10, 10])
+        ax1.set_ylim([-0.1, 1.1])
         ax1.legend()
         ax1.set_xlabel(r"$t$")
         ax1.set_ylabel(r"$\mathbf{x}(t)$")
@@ -210,11 +273,6 @@ def _(np, plt, records, ts):
         ax2.set_ylabel(r"$u(t)$")
     plt.tight_layout()
     plt.show()
-    return
-
-
-@app.cell
-def _():
     return
 
 

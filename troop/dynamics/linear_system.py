@@ -2,91 +2,72 @@ import jax.numpy as jnp
 from hj_reachability import dynamics, sets
 
 
-class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
+class LinearReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(
         self,
-        A,
-        B,
         Phi,
         Psi,
+        A,
+        Bu=None,
+        Bd=None,
         control_mode="min",
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
         rank=2,
-        uMax=+1.0,
-        uMin=0.0,
-        dMax=0.00,
-        dMin=0.00,
+        control_center=(0.0,),
+        control_radius=+1.0,
+        disturbance_center=(0.0,),
+        disturbance_radius=+0.0,
     ):
-        self.uMax = uMax
-        self.uMin = uMin
-        self.dMax = dMax
-        self.dMin = dMin
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
         self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
         self.rank = rank
 
+        self.A = jnp.array(A)
+        n, _ = A.shape
+
+        if Bu is None:
+            self.Bu = jnp.zeros((n, 1))
+        else:
+            self.Bu = jnp.array(Bu)
+
+        if Bd is None:
+            self.Bd = jnp.zeros((n, 1))
+        else:
+            self.Bd = jnp.array(Bd)
+
         if control_space is None:
-            # control_space = sets.Ball(jnp.array([self.uMin]), jnp.array([self.uMax]))
-            control_space = sets.Ball(jnp.array[], jnp.array([self.uMin]), jnp.array([self.uMax]))
+            control_space = sets.Ball(jnp.array(control_center), control_radius)
         if disturbance_space is None:
-            disturbance_space = sets.Box(
-                jnp.array([self.dMin, self.dMin, self.dMin]),
-                jnp.array([self.dMax, self.dMax, self.dMax]),
+            disturbance_space = sets.Ball(
+                jnp.array(disturbance_center), disturbance_radius
             )
+
         super().__init__(
             control_mode, disturbance_mode, control_space, disturbance_space
         )
 
     def open_loop_dynamics(self, state, time):
         xstate = self.Phi @ state.reshape([self.rank, 1])
-        x, y, theta = xstate
-        x = x[0]
-        y = y[0]
-        theta = theta[0]
 
-        fx = jnp.array(
-            [
-                [jnp.cos(theta)],
-                [jnp.sin(theta)],
-                [0.0],
-            ]
-        )
+        fx = self.A @ xstate
 
         fz = self.Derivative_Projection @ fx
 
         return fz.reshape([self.rank])
 
     def control_jacobian(self, state, time):
-        # xstate = self.Phi @ state.reshape([self.rank, 1]) + self.x_star
-        # x, y, theta = xstate
-        # x = x[0]
-        # y = y[0]
-        # theta = theta[0]
-
-        gux = jnp.array([[0.0], [0.0], [1.0]])
+        gux = self.Bu
 
         guz = self.Derivative_Projection @ gux
 
-        return guz
+        return guz.reshape([self.rank, self.Bu.shape[-1]])
 
     def disturbance_jacobian(self, state, time):
-        # xstate = self.Phi @ state.reshape([self.rank, 1]) + self.x_star
-        # x, y, theta = xstate
-        # x = x[0]
-        # y = y[0]
-        # theta = theta[0]
-
-        gdx = jnp.array(
-            [
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0],
-                [0.0, 0.0, 0.0],
-            ]
-        )
+        gdx = self.Bd
 
         gdz = self.Derivative_Projection @ gdx
 
-        return gdz
+        return gdz.reshape([self.rank, self.Bd.shape[-1]])

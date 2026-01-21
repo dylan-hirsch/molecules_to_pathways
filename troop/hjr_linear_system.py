@@ -11,9 +11,11 @@ def _():
     import jax
     import jax.numpy as jnp
     import hj_reachability as hj
-    import numpy as np
 
-    from dynamics.dubins_car import DubinsReducedModel
+    import numpy as np
+    import scipy as sp
+
+    from dynamics.linear_system import LinearReducedModel
     from reducers.troop import Trooper
 
     from scipy import integrate as ode
@@ -27,18 +29,18 @@ def _():
 
     import random
 
-    random.seed(2026)
-    np.random.seed(2026)
+    random.seed(2025)
+    np.random.seed(2025)
 
     plt.rcParams["text.usetex"] = False
     plt.rcParams["mathtext.fontset"] = "cm"
     font = {"size": 15}
     plt.rc("font", **font)
-    return DubinsReducedModel, Trooper, hj, jnp, np, ode, plt, spline
+    return LinearReducedModel, Trooper, hj, jnp, np, ode, plt, sp, spline
 
 
 @app.cell
-def _(np):
+def _(np, sp):
     n = 3  # FOM size
     r = 2  # ROM size
 
@@ -46,45 +48,49 @@ def _(np):
     m = 1  # output size
 
     L = 11  # number of time steps
-    T = 5  # final time
+    T = 3  # final time
+
+
+    A = np.random.normal(size=(n, n))
+    U, Q = sp.linalg.schur(A)
+    np.fill_diagonal(U, -np.abs(np.diag(U)))
+    A = Q @ U @ Q.T
+    B = np.random.normal(size=(n, d))
+    C = np.random.normal(size=(m, n))
+
+    # A = np.eye(3)
+    # B = np.array([1, 0, 0]).reshape((3, 1))
+    # C = np.array([1, 0, 0]).reshape((1, 3))
 
 
     def f(x, u):
-        theta = x[2]
-        return np.array([np.cos(theta), np.sin(theta), u]).reshape((3,))
+        xdot = A @ x + B @ u
+        return xdot.reshape((n,))
 
 
     def g(x):
-        x1 = x[0]
-        x2 = x[1]
-        return np.array([-x1 - x2]).reshape((1,))
+        y = C @ x
+        return y.reshape((1,))
 
 
     def dfdx(x, u):
-        x1 = x[0]
-        x2 = x[1]
-        theta = x[2]
-        return np.array(
-            [[0, 0, -np.sin(theta)], [0, 0, np.cos(theta)], [0, 0, 0]]
-        ).reshape((3, 3))
+        return A.reshape((3, 3))
 
 
     def dgdx(x):
-        x1 = x[0]
-        x2 = x[1]
-        return np.array([-1, -1, 0]).reshape((1, 3))
-    return L, T, d, dfdx, dgdx, f, g, m, n, r
+        return C.reshape((1, 3))
+    return A, B, C, L, T, d, dfdx, dgdx, f, g, m, n, r
 
 
 @app.cell
-def _(f, np):
+def _(d, f, np):
     def dx(t, x, grad_valuess, grid, model, times):
         x = np.array(x).reshape([len(x)])
-        z = model.Derivative_Projection @ (x - model.x_star)
+        z = model.Derivative_Projection @ x
 
         i = np.argmin(np.abs(times - t))
         grad_value = grid.interpolate(grad_valuess[i], state=z)
-        u = model.optimal_control(z, t, grad_value)[0]
+        u = np.array(model.optimal_control(z, t, grad_value)).reshape((d,))
 
         return f(x, u)
     return (dx,)
@@ -92,7 +98,8 @@ def _(f, np):
 
 @app.cell
 def _(L, T, Trooper, d, dfdx, dgdx, f, g, m, n, np, r):
-    u_fn0 = lambda t: 1  # np.array([1])
+    u_fn0 = lambda t: np.array([1])
+
     x0 = np.array([0.0, 0.0, 0.0])  # initial state
 
     trooper = Trooper(n, r, d, m, f, g, dfdx, dgdx, u_fn=u_fn0, x0=x0, T=T, L=L)
@@ -101,12 +108,16 @@ def _(L, T, Trooper, d, dfdx, dgdx, f, g, m, n, np, r):
 
 @app.cell
 def _(
-    DubinsReducedModel,
+    A,
+    B,
+    C,
+    LinearReducedModel,
     T,
     dx,
     f,
     hj,
     jnp,
+    m,
     np,
     ode,
     r,
@@ -136,7 +147,7 @@ def _(
 
         Phi = trooper.Phi
         Psi = trooper.Psi
-        model = DubinsReducedModel(rank=r, Phi=Phi, Psi=Psi, x_star=x0)
+        model = LinearReducedModel(A=A, Bu=B, Bd=None, rank=r, Phi=Phi, Psi=Psi)
 
         zmax = np.ones((r,))
 
@@ -149,8 +160,8 @@ def _(
             periodic_dims=None,
         )
 
-        xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states) + x0
-        l = -xgrid[..., 0] + -xgrid[..., 1]
+        xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states)
+        l = jnp.einsum("ij,...j -> ...i", C, xgrid)[..., 0]
 
         times = np.linspace(0.0, -T, 51)
         solver_settings = hj.SolverSettings.with_accuracy("very_high")
@@ -173,7 +184,7 @@ def _(
             x = np.array(sol.sol(t)).reshape(
                 3,
             )
-            z = model.Derivative_Projection @ (x - model.x_star)
+            z = model.Derivative_Projection @ x
             j = np.argmin(np.abs(times - t))
             grad_value = grid.interpolate(grad_valuess[j], state=z)
             u = model.optimal_control(z, t, grad_value)[0]
@@ -181,14 +192,18 @@ def _(
         us = np.array(us)
 
         u_fn = spline(ts + T, us)
-        trooper.set_u_fn(u_fn)
+        trooper.set_u_fn(
+            lambda t: np.array(u_fn(t)).reshape(
+                m,
+            )
+        )
 
         records.append((sol.sol, us))
-    return records, ts
+    return records, times, ts
 
 
 @app.cell
-def _(np, plt, records, ts):
+def _(plt, records, ts):
     fig, axs = plt.subplots(6, 2, figsize=(10, 20))
     for record, ax1, ax2 in zip(records, axs[:, 0], axs[:, 1]):
         state_function = record[0]
@@ -196,10 +211,6 @@ def _(np, plt, records, ts):
         labels = [r"$x$", r"$y$", r"$\theta$"]
         for state_index, label in zip(range(3), labels):
             ax1.plot(ts, [state_function(t)[state_index] for t in ts], label=label)
-        # ax1.hlines(-np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        # ax1.hlines(0, min(ts), max(ts), linestyle="--", colors="k")
-        # ax1.hlines(+3 * np.pi / 2, min(ts), max(ts), linestyle="--", colors="k")
-        ax1.hlines(np.pi / 4, min(ts), max(ts), linestyle="--", colors="k")
         ax1.set_ylim([-10, 10])
         ax1.legend()
         ax1.set_xlabel(r"$t$")
@@ -214,7 +225,80 @@ def _(np, plt, records, ts):
 
 
 @app.cell
-def _():
+def _(
+    A,
+    B,
+    C,
+    LinearReducedModel,
+    T,
+    dx,
+    hj,
+    jnp,
+    n,
+    np,
+    ode,
+    times,
+    trooper,
+    ts,
+    x0,
+):
+    def _():
+        model0 = LinearReducedModel(
+            A=A, Bu=B, Bd=None, rank=n, Phi=np.eye(3), Psi=np.eye(3)
+        )
+
+        zmax0 = np.ones((n,))
+
+        grid0 = hj.Grid.from_lattice_parameters_and_boundary_conditions(
+            hj.sets.Box(
+                -5 * np.abs(zmax0),
+                5 * np.abs(zmax0),
+            ),
+            [51 for _ in range(n)],
+            periodic_dims=None,
+        )
+
+        xgrid0 = jnp.einsum("ij,...j -> ...i", np.eye(3), grid0.states)
+        l0 = jnp.einsum("ij,...j -> ...i", C, xgrid0)[..., 0]
+
+        solver_settings0 = hj.SolverSettings.with_accuracy("very_high")
+        V0 = hj.solve(solver_settings0, model0, grid0, times, l0)
+
+        grad_valuess0 = [grid0.grad_values(V0[i, ...]) for i in range(len(times))]
+
+        sol0 = ode.solve_ivp(
+            lambda t, x: dx(t, x, grad_valuess0, grid0, model0, times),
+            [-T, 0.0],
+            x0,
+            max_step=0.1,
+            dense_output=True,
+            atol=trooper.atol,
+            rtol=trooper.rtol,
+        )
+
+        us0 = []
+        for t in ts:
+            xdum = np.array(sol0.sol(t)).reshape(
+                3,
+            )
+            zdum = model0.Derivative_Projection @ xdum
+            k = np.argmin(np.abs(times - t))
+            grad_value0 = grid0.interpolate(grad_valuess0[k], state=zdum)
+            u0 = model0.optimal_control(zdum, t, grad_value0)[0]
+            us0.append(u0)
+        us0 = np.array(us0)
+        return us0
+
+
+    us0 = _()
+    return (us0,)
+
+
+@app.cell
+def _(plt, ts, us0):
+    plt.plot(ts, us0)
+    plt.ylim([-1.1, 1.1])
+    plt.show()
     return
 
 
