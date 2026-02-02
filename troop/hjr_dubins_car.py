@@ -209,6 +209,7 @@ def _(np, plt, records, ts):
         ax2.set_xlabel(r"$t$")
         ax2.set_ylabel(r"$u(t)$")
     plt.tight_layout()
+    plt.savefig('/Users/dylanhirsch/Desktop/dubins_car.png')
     plt.show()
     return
 

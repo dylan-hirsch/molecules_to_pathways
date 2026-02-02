@@ -21,7 +21,6 @@ class Trooper:
         x0=None,
         A=None,
         Y=None,
-        yhat_fn=None,
         z_fn=None,
         T=1.0,
         L=101,
@@ -97,12 +96,10 @@ class Trooper:
         else:
             self.Y = Y.copy()
 
-        if yhat_fn is None or z_fn is None:
-            self.yhat_fn = None
+        if z_fn is None:
             self.z_fn = None
             self.simulate_rom()
         else:
-            self.yhat_fn = yhat_fn
             self.z_fn = z_fn
 
         self.gradJ_Phi = None
@@ -158,7 +155,7 @@ class Trooper:
         Simulate the full-order model (FOM) dynamics.
         """
         sol = solve_ivp(
-            lambda t, x: self.f(x, self.u_fn(t)),
+            self.fom_dynamics,
             y0=self.x0,
             t_span=(self.times[0], self.times[-1]),
             t_eval=self.times,
@@ -183,7 +180,7 @@ class Trooper:
         Simulate the reduced-order model (ROM) dynamics.
         """
         sol = solve_ivp(
-            lambda t, z: self.A @ (self.Psi.T @ self.f(self.Phi @ z, self.u_fn(t))),
+            self.rom_dynamics,
             y0=self.A @ (self.Psi.T @ self.x0),
             t_span=(self.times[0], self.times[-1]),
             dense_output=True,
@@ -191,8 +188,16 @@ class Trooper:
             atol=self.atol,
             rtol=self.rtol,
         )
-        self.z_fn = lambda t: sol.sol(t)
-        self.yhat_fn = lambda t: self.g(self.Phi @ self.z_fn(t))
+        self.z_fn = sol.sol
+
+    def fom_dynamics(self, t, x):
+        return self.f(x, self.u_fn(t))
+
+    def rom_dynamics(self, t, z):
+        return self.A @ (self.Psi.T @ self.f(self.Phi @ z, self.u_fn(t)))
+
+    def yhat_fn(self, t):
+        return self.g(self.Phi @ self.z_fn(t))
 
     ## Setters
     def set_phi_psi(self, Phi, Psi):
@@ -366,18 +371,34 @@ class Trooper:
         self.gradJ_Phi += self.gamma * 2 * (self.Phi - self.Psi @ self.A.T)
         self.gradJ_Psi += self.gamma * 2 * (self.Psi - self.Phi @ self.A)
 
-        # Project onto tangent spaces
-        self.gradJ_Phi = self.project_onto_tangent_space(self.Phi, self.gradJ_Phi)
-        self.gradJ_Psi = self.project_onto_tangent_space(self.Psi, self.gradJ_Psi)
+        Phi_error = np.linalg.norm(self.Phi.T @ self.gradJ_Phi) / np.linalg.norm(
+            self.gradJ_Phi
+        )
+        Psi_error = np.linalg.norm(self.Psi.T @ self.gradJ_Psi) / np.linalg.norm(
+            self.gradJ_Phi
+        )
+        print("Phi error: " + str(Phi_error))
+        print("Psi error: " + str(Psi_error))
 
-    def project_onto_tangent_space(self, Theta, Upsilon):
+        # Project onto tangent spaces
+        self.project_onto_tangent_space()
+
+        Phi_error = np.linalg.norm(self.Phi.T @ self.gradJ_Phi) / np.linalg.norm(
+            self.gradJ_Phi
+        )
+        Psi_error = np.linalg.norm(self.Psi.T @ self.gradJ_Psi) / np.linalg.norm(
+            self.gradJ_Phi
+        )
+
+    def project_onto_tangent_space(self):
         """
         Docstring for project_onto_tangent_space
 
         Project matrix Upsilon onto the tangent space of the Grassman manifold
         at state Theta.
         """
-        return Upsilon - Theta @ Theta.T @ Upsilon
+        self.gradJ_Phi = self.gradJ_Phi - self.Phi @ self.Phi.T @ self.gradJ_Phi
+        self.gradJ_Psi = self.gradJ_Psi - self.Psi @ self.Psi.T @ self.gradJ_Psi
 
     # Geodesic calculations
     def inner_product(self, X1, Y1, X2, Y2):
@@ -451,6 +472,33 @@ class Trooper:
     def get_cost_derivative(self, X, Y):
         self.compute_gradient()
         cost_derivative = self.inner_product(self.gradJ_Phi, self.gradJ_Psi, X, Y)
+
+        # compute gradient error
+        Ux, Sx, VxT = np.linalg.svd(X, full_matrices=False)
+        Uy, Sy, VyT = np.linalg.svd(Y, full_matrices=False)
+        Vx = VxT.T
+        Vy = VyT.T
+
+        normalizer = np.sqrt(
+            self.inner_product(
+                X,
+                Y,
+                X,
+                Y,
+            )
+        )
+
+        alpha = 1e-3 / normalizer
+
+        Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
+
+        alpha_trooper = self.copy()
+        alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
+        J_plus = alpha_trooper.get_cost()
+
+        true_cost_derivative = (J_plus - self.get_cost()) / alpha
+        print("True cost derivative: " + str(true_cost_derivative))
+
         return cost_derivative
 
     # Gradient descent
@@ -571,12 +619,10 @@ class Trooper:
         Vy,
         X,
         Y,
-        init_step_size,
         c1=0.1,
         c2=0.5,
-        max_step_search_iters=50,
+        max_iters=30,
         verbose=False,
-        profile=False,
     ):
         alpha_trooper = self.copy()
 
@@ -592,9 +638,9 @@ class Trooper:
             )
         )
 
-        alpha = 1 / normalizer
+        alpha = 0.1 / normalizer
 
-        for _ in range(max_step_search_iters):
+        for iter in range(max_iters):
             Phi_alpha, Psi_alpha = self.geodesic(alpha, Ux, Sx, Vx, Uy, Sy, Vy)
 
             alpha_trooper.set_phi_psi(Phi_alpha, Psi_alpha)
@@ -612,30 +658,27 @@ class Trooper:
                 + "; dJ0: "
                 + str(dJ0)
                 + "; backtracking steps: "
-                + str(_)
+                + str(iter)
             )
 
         alpha_trooper.compute_gradient()
 
-        return alpha, alpha_trooper, normalizer
+        return alpha, alpha_trooper, iter == max_iters - 1
 
     def conjugate_gradient(
         self,
         max_iters=100,
         tol=1e-4,
-        initial_step_size=0.01,
         c1=0.1,
         c2=0.5,
-        max_step_search_iters=40,  # used to be 40
+        backtracking_iters=30,
         verbose=False,
-        profile=False,
     ):
         self.compute_gradient()
         gradient_norm = self.gradient_norm()
         X = -self.gradJ_Phi
         Y = -self.gradJ_Psi
 
-        init_step_size = initial_step_size
         iter = 0
 
         print("Initial cost: " + str(self.get_cost()))
@@ -646,7 +689,7 @@ class Trooper:
             Vx = VxT.T
             Vy = VyT.T
 
-            alpha, alpha_trooper, normalizer = self.backtracking(
+            alpha, alpha_trooper, reached_max_iters = self.backtracking(
                 Ux,
                 Sx,
                 Vx,
@@ -655,13 +698,15 @@ class Trooper:
                 Vy,
                 X,
                 Y,
-                init_step_size,
                 c1,
                 c2,
-                max_step_search_iters,
+                max_iters=backtracking_iters,
                 verbose=verbose,
-                profile=profile,
             )
+
+            if reached_max_iters:
+                print("Backtracking reached maximum step search iterations.")
+                break
 
             denominator_2 = self.inner_product(self.gradJ_Phi, self.gradJ_Psi, X, Y)
 
@@ -670,6 +715,7 @@ class Trooper:
             )
 
             self.inherit(alpha_trooper)
+            del alpha_trooper
 
             X_tilde[:, 0] = self.parity * X_tilde[:, 0]
 
@@ -682,8 +728,6 @@ class Trooper:
 
             X = -self.gradJ_Phi + beta * X_tilde
             Y = -self.gradJ_Psi + beta * Y_tilde
-
-            init_step_size = alpha * normalizer
 
             iter = iter + 1
         print("Final cost: " + str(self.get_cost()))

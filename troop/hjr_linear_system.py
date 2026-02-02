@@ -220,6 +220,7 @@ def _(plt, records, ts):
         ax2.set_xlabel(r"$t$")
         ax2.set_ylabel(r"$u(t)$")
     plt.tight_layout()
+    plt.savefig('/Users/dylanhirsch/Desktop/linear_system.png')
     plt.show()
     return
 
@@ -298,7 +299,13 @@ def _(
 def _(plt, ts, us0):
     plt.plot(ts, us0)
     plt.ylim([-1.1, 1.1])
+    plt.savefig('/Users/dylanhirsch/Desktop/linear_system_optimal.png')
     plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 

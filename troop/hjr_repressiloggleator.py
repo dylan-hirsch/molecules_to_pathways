@@ -272,7 +272,13 @@ def _(plt, records, ts):
         ax2.set_xlabel(r"$t$")
         ax2.set_ylabel(r"$u(t)$")
     plt.tight_layout()
+    plt.savefig('/Users/dylanhirsch/Desktop/repressiloggleator.png')
     plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 
