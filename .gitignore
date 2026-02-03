@@ -7,3 +7,7 @@ __marimo__/
 */*.asv
 */data/*
 data/*
+scratch/*
+*/scratch/*
+*scratch*
+*/*scratch*
