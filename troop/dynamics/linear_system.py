@@ -14,7 +14,6 @@ class LinearReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
-        rank=2,
         control_center=(0.0,),
         control_radius=+1.0,
         disturbance_center=(0.0,),
@@ -22,8 +21,8 @@ class LinearReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
     ):
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
-        self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
-        self.rank = rank
+        self.Psi = self.Psi @ jnp.linalg.inv(Phi.T @ Psi)
+        self.rank = self.Phi.shape[1]
 
         self.A = jnp.array(A)
         n, _ = A.shape
@@ -54,20 +53,20 @@ class LinearReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
 
         fx = self.A @ xstate
 
-        fz = self.Derivative_Projection @ fx
+        fz = self.Psi.T @ fx
 
         return fz.reshape([self.rank])
 
     def control_jacobian(self, state, time):
         gux = self.Bu
 
-        guz = self.Derivative_Projection @ gux
+        guz = self.Psi.T @ gux
 
         return guz.reshape([self.rank, self.Bu.shape[-1]])
 
     def disturbance_jacobian(self, state, time):
         gdx = self.Bd
 
-        gdz = self.Derivative_Projection @ gdx
+        gdz = self.Psi.T @ gdx
 
         return gdz.reshape([self.rank, self.Bd.shape[-1]])

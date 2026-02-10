@@ -126,25 +126,33 @@ class Cobra:
     def sample_gradients(self):
         cols = []
         for _ in range(self.sg):
-            eta = (self.L + 1) * np.random.normal(
+            eta = (self.times[self.L] + 1) * np.random.normal(
                 size=(self.m,)
             )  # Sample from N(0, (L+1)I)
             t = np.random.choice(self.N + 1)
             tau = np.random.choice(self.L + 1)
             tf = t + tau
-            g_eta = self.solve_adjoint(eta, tf)
+            g_eta = self.solve_adjoint(eta, self.times[tf])
             tau_min = max(0, tf - self.N)
             tau_max = min(self.L, tf)
             Yi = (
-                np.array([g_eta(k) for k in range(tau_min, tau_max + 1)]).T
-                / (1 + tau_max - tau_min) ** 0.5
+                np.array([g_eta(self.times[k]) for k in range(tau_min, tau_max + 1)]).T
+                / (1 + self.times[tau_max] - self.times[tau_min]) ** 0.5
             )
             cols.append(Yi)
         self.Y = np.hstack(cols) / np.sqrt(self.sg)
 
     def factorized_covariance_balancing(self):
+        print(self.Y.shape)
+        print(self.X.shape)
         U, S, Vt = np.linalg.svd(self.Y.T @ self.X, full_matrices=False)
         V = Vt.T
+        print("X")
+        print(self.X)
+        print("V")
+        print(V)
+        print("S")
+        print(S)
         Phi = self.X @ V[:, : self.r] @ np.diag(np.sqrt(1 / S[: self.r]))
         Psi = self.Y @ U[:, : self.r] @ np.diag(np.sqrt(1 / S[: self.r]))
         self.Phi = Phi

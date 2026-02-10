@@ -13,7 +13,6 @@ class RepressiloggleatorReducedModel(dynamics.ControlAndDisturbanceAffineDynamic
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
-        rank=2,
         uMax=1.0,
         uMin=0.0,
         dMax=0.00,
@@ -21,8 +20,8 @@ class RepressiloggleatorReducedModel(dynamics.ControlAndDisturbanceAffineDynamic
     ):
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
-        self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
-        self.rank = rank
+        self.Psi = self.Psi @ jnp.linalg.inv(Phi.T @ Psi)
+        self.rank = self.Phi.shape[1]
 
         if control_space is None:
             control_space = sets.Box(jnp.array([uMin]), jnp.array([uMax]))
@@ -75,7 +74,7 @@ class RepressiloggleatorReducedModel(dynamics.ControlAndDisturbanceAffineDynamic
             ]
         )
 
-        fz = self.Derivative_Projection @ fx
+        fz = self.Psi.T @ fx
 
         return fz.reshape([self.rank])
 
@@ -96,7 +95,7 @@ class RepressiloggleatorReducedModel(dynamics.ControlAndDisturbanceAffineDynamic
             [[0.0], [0.0], [0.0], [self.mm(x2, K2, n2)], [self.mm(x3, K3, n3)]]
         )
 
-        guz = self.Derivative_Projection @ gux
+        guz = self.Psi.T @ gux
 
         return guz.reshape([self.rank, 1])
 
@@ -132,6 +131,6 @@ class RepressiloggleatorReducedModel(dynamics.ControlAndDisturbanceAffineDynamic
             ]
         )
 
-        gdz = self.Derivative_Projection @ gdx
+        gdz = self.Psi.T @ gdx
 
         return gdz.reshape([self.rank, 5])

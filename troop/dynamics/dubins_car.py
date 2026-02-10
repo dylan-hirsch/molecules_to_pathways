@@ -7,12 +7,10 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         self,
         Phi,
         Psi,
-        x_star,
         control_mode="min",
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
-        rank=2,
         uMax=+1.0,
         uMin=0.0,
         dMax=0.00,
@@ -22,11 +20,11 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         self.uMin = uMin
         self.dMax = dMax
         self.dMin = dMin
-        self.x_star = x_star
+
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
-        self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
-        self.rank = rank
+        self.Psi = self.Psi @ jnp.linalg.inv(Phi.T @ Psi)
+        self.rank = self.Phi.shape[1]
 
         if control_space is None:
             control_space = sets.Box(jnp.array([self.uMin]), jnp.array([self.uMax]))
@@ -40,7 +38,7 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         )
 
     def open_loop_dynamics(self, state, time):
-        xstate = self.Phi @ state.reshape([self.rank, 1]) + self.x_star
+        xstate = self.Phi @ state.reshape([self.rank, 1])
         x, y, theta = xstate
         x = x[0]
         y = y[0]
@@ -54,7 +52,7 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
             ]
         )
 
-        fz = self.Derivative_Projection @ fx
+        fz = self.Psi.T @ fx
 
         return fz.reshape([self.rank])
 
@@ -67,7 +65,7 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
 
         gux = jnp.array([[0.0], [0.0], [1.0]])
 
-        guz = self.Derivative_Projection @ gux
+        guz = self.Psi.T @ gux
 
         return guz
 
@@ -86,6 +84,6 @@ class DubinsReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
             ]
         )
 
-        gdz = self.Derivative_Projection @ gdx
+        gdz = self.Psi.T @ gdx
 
         return gdz

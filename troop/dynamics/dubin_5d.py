@@ -11,9 +11,8 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         disturbance_mode="max",
         control_space=None,
         disturbance_space=None,
-        rank=3,
         uMax=+1.0,
-        uMin=-1.0,
+        uMin=+0.0,
         dMax=0.00,
         dMin=0.00,
     ):
@@ -23,8 +22,8 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         self.dMin = dMin
         self.Phi = jnp.asarray(Phi)
         self.Psi = jnp.asarray(Psi)
-        self.Derivative_Projection = jnp.linalg.inv(Psi.T @ Phi) @ self.Psi.T
-        self.rank = rank
+        self.Psi = self.Psi @ jnp.linalg.inv(Phi.T @ Psi)
+        self.rank = self.Phi.shape[1]
 
         if control_space is None:
             control_space = sets.Box(
@@ -52,7 +51,7 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
             [[v * jnp.cos(theta)], [v * jnp.sin(theta)], [omega], [0.0], [0.0]]
         )
 
-        fz = self.Derivative_Projection @ fx
+        fz = self.Psi.T @ fx
 
         return fz.reshape([self.rank])
 
@@ -65,7 +64,7 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
 
         gux = jnp.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
 
-        guz = self.Derivative_Projection @ gux
+        guz = self.Psi.T @ gux
 
         return guz
 
@@ -78,6 +77,6 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
 
         gdx = jnp.zeros((5, 5))
 
-        gdz = self.Derivative_Projection @ gdx
+        gdz = self.Psi.T @ gdx
 
         return gdz

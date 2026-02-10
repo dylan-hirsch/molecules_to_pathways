@@ -45,11 +45,11 @@ def _(np):
     r = 3  # ROM size
 
     d = 2  # input size
-    m = 2  # output size
+    m = 1  # output size
 
     L = 10
     N = 10
-    T = 5  # final time
+    T = 2  # final time
 
 
     def f(x, u):
@@ -66,12 +66,11 @@ def _(np):
 
 
     def h(x):
-        x1 = x[0]
-        x2 = x[1]
+        x4 = x[3]
+        x5 = x[4]
         return np.array(
             [
-                np.sqrt(abs(x1 - 1.25) ** 2 + abs(x2 - 0.0) ** 2),
-                np.sqrt(abs(x1 - 0.5) ** 2 * 4 + abs(x2 - 0.0) ** 2 / 4),
+                np.sqrt(abs(x4 - 1) ** 2 + abs(x5 - 1) ** 2),
             ]
         ).reshape((m,))
 
@@ -91,32 +90,20 @@ def _(np):
 
 
     def dhdx(x):
-        x1 = x[0]
-        x2 = x[1]
+        x4 = x[3]
+        x5 = x[4]
         return np.array(
             [
                 [
-                    (x1 - 1.25)
-                    / np.sqrt(abs(x1 - 1.25) ** 2 + abs(x2 - 0.0) ** 2),
-                    (x2 - 0.0) / np.sqrt(abs(x1 - 1.25) ** 2 + abs(x2 - 0.0) ** 2),
                     0,
                     0,
                     0,
-                ],
-                [
-                    4
-                    * (x1 - 0.5)
-                    / np.sqrt(abs(x1 - 0.5) ** 2 * 4 + abs(x2 - 0.0) ** 2 / 4),
-                    0.25
-                    * (x2 - 0.0)
-                    / np.sqrt(abs(x1 - 0.5) ** 2 * 4 + abs(x2 - 0.0) ** 2 / 4),
-                    0,
-                    0,
-                    0,
+                    (x4 - 1) / np.sqrt(abs(x4 - 1) ** 2 + abs(x5 - 1) ** 2),
+                    (x5 - 1) / np.sqrt(abs(x4 - 1) ** 2 + abs(x5 - 1) ** 2),
                 ],
             ]
         ).reshape((m, n))
-    return L, N, T, d, dfdx, dhdx, f, h, m, n, r
+    return L, N, T, d, dfdx, dhdx, f, h, m, n
 
 
 @app.cell
@@ -133,14 +120,15 @@ def _(f, jnp, np):
 
 
     def value_postprocessor(t, v, l, g):
-        return jnp.maximum(jnp.minimum(v, l), g)
-    return dx, value_postprocessor
+        return jnp.minimum(v, l)
+        # return jnp.maximum(jnp.minimum(v, l), g)
+    return (dx,)
 
 
 @app.cell
 def _(d, np):
     def u_fn0(t):
-        return np.array([np.sin(t), 0]).reshape((d,))
+        return np.array([np.sin(t), np.cos(t)]).reshape((d,))
 
 
     x0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0])  # initial state
@@ -167,9 +155,7 @@ def _(
     n,
     np,
     ode,
-    r,
     u_fn0,
-    value_postprocessor,
     x0,
 ):
     ts = np.linspace(-T, 0, 100)
@@ -181,16 +167,16 @@ def _(
         dense_output=True,
     )
 
-    records = [(sol0.sol, [u_fn0(t) for t in ts], np.nan)]
+    records = [(sol0.sol, [u_fn0(t) for t in ts], np.nan, np.nan)]
 
 
     u_fn = u_fn0
-    for iter in range(25):
+    for iter in range(1):
         print("Iteration: " + str(iter))
 
         cobra = Cobra(
             n,
-            r,
+            1,
             d,
             m,
             f,
@@ -206,8 +192,8 @@ def _(
 
         Wx = cobra.X @ cobra.X.T
         Wg = cobra.Y @ cobra.Y.T
-
         P = cobra.Phi @ cobra.Psi.T
+
         metric = np.linalg.trace(Wg @ (np.eye(n) - P) @ Wx @ (np.eye(n) - P.T))
 
         Phi, _ = np.linalg.qr(cobra.Phi)
@@ -238,22 +224,24 @@ def _(
         xgrid = jnp.einsum("ij,...j -> ...i", Phi, grid.states)
         l = (
             jnp.sqrt(
-                jnp.abs(xgrid[..., 0] - 1.25) ** 2 + abs(xgrid[..., 1] - 0.0) ** 2
+                jnp.abs(xgrid[..., 3] - 1.0) ** 2 + abs(xgrid[..., 4] - 1.0) ** 2
             )
             - 1.0
         )
-        g = (
-            -jnp.sqrt(
-                jnp.abs(xgrid[..., 0] - 0.5) ** 2 * 2
-                + jnp.abs(xgrid[..., 1] - 0.0) ** 2 / 2
-            )
-            + 1.0
-        )
+        # g = (
+        #    -jnp.sqrt(
+        #        jnp.abs(xgrid[..., 0] - 0.5) ** 2 * 2
+        #        + jnp.abs(xgrid[..., 1] - 0.0) ** 2 / 2
+        #    )
+        #    + 1.0
+        # )
 
         times = np.linspace(0.0, -T, 51)
         solver_settings = hj.SolverSettings.with_accuracy(
             "very_high",
-            value_postprocessor=lambda t, v: value_postprocessor(t, v, l, g),
+            # value_postprocessor=lambda t, v: value_postprocessor(
+            #    t, v, l, 0
+            # ),  # value_postprocessor(t, v, l, g),
         )
         V = hj.solve(solver_settings, model, grid, times, l)
 
@@ -288,7 +276,7 @@ def _(
             axis=0,
         )
 
-        records.append((sol.sol, us, metric))
+        records.append((sol.sol, us, metric, r0))
     return records, ts
 
 
@@ -301,6 +289,7 @@ def _(T, np, plt, records, ts):
         state_function = record[0]
         inputs = record[1]
         rec_metric = record[2]
+        rec_r0 = record[3]
         labels = [r"$x$", r"$y$", r"$\theta$", r"$v$", r"$\omega$"]
         for state_index, label in zip(range(5), labels):
             ax1.plot(
@@ -316,14 +305,17 @@ def _(T, np, plt, records, ts):
         ax2.set_ylim([-1.1, 1.1])
         ax2.set_xlabel(r"$t$")
         ax2.set_ylabel(r"$u(t)$")
+        ax2.set_title(rec_r0)
         ax3.plot(
-            [state_function(t)[0] for t in ts0],
-            [state_function(t)[1] for t in ts0],
+            [state_function(t)[3] for t in ts0],
+            [state_function(t)[4] for t in ts0],
         )
         ax3.set_xlim([-2.1, 2.1])
         ax3.set_ylim([-2.1, 2.1])
         ax3.scatter([0.5, 1.25], [0, 0])
-        ax3.set_title(rec_metric)
+        ax3.set_title(f"{rec_metric:.{2}g}")
+        ax3.axvline(1, linestyle="--", linewidth=2, color="k")
+        ax3.axhline(1, linestyle="--", linewidth=2, color="k")
     plt.tight_layout()
     plt.savefig("/Users/dylanhirsch/Desktop/dubins_car_cobra.png")
     plt.show()

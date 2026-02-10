@@ -5,7 +5,28 @@ from scipy.linalg import solve_continuous_are as solve_are
 from numpy.linalg import matrix_rank
 
 
-def get_bt_transform(A, B, C):
+def get_petrov_galerkin_projection(P, Q, r):
+
+    # Do cholesky factorizations
+    R = np.linalg.cholesky(P, upper = True)
+    L = np.linalg.cholesky(Q, upper = True)
+    
+    # Perform SVD
+    U,S,VT = np.linalg.svd(L.T @ R)
+    V = VT.T
+
+    # Truncate
+    Ur = U[:,:r]
+    Sr = S[:r]
+    Vr = V[:,:r]
+
+    # Form trial matrix Phi and test matrix Psi
+    Phi = R @ Vr @ np.diag(1 / np.sqrt(Sr)) # typically called T_r
+    Psi = L @ Ur @ np.diag(1 / np.sqrt(Sr)) # typically called T_r^{-1}.T
+
+    return Phi, Psi, S
+
+def get_bt_transform(A, B, C, r):
     """
     Computes the transformation matrix T from balanced truncation, where the original system is
 
@@ -24,24 +45,12 @@ def get_bt_transform(A, B, C):
     """
 
     # Compute controllability and observability gramians of the original system
-    Pc = solve_lyap(A, -B @ B.T) # controllability gramian
-    Po = solve_lyap(A.T, -C.T @ C) # observability gramian
+    P = solve_lyap(A, -B @ B.T) # controllability gramian
+    Q = solve_lyap(A.T, -C.T @ C) # observability gramian
 
-    # Cholesky factorize the controllability and observability grammians
-    R = np.linalg.cholesky(Pc)
-    L = np.linalg.cholesky(Po)
+    return get_petrov_galerkin_projection(P, Q, r)
 
-    U, S, V = np.linalg.svd(L.T @ R)
-
-    # Compute the transformation matrix relating z and x, i.e. x = Tz, along with the inverse matrix Tinv
-    T = R @ V @ np.diag(np.sqrt(1 / S))
-    Tinv = np.diag(np.sqrt(1 / S)) @ U.T @ L.T
-
-    error = np.linalg.norm(T.T @ Pc @ T - Tinv @ Po @ Tinv.T, 2)
-
-    return T, Tinv, S, error
-
-def get_lqg_bt_transform(A, B, C):
+def get_lqg_bt_transform(A, B, C, r):
 
     """
     See "A New Set of invariants for Linear Systems -- Application to Reduced Order Compensator Design" by Jonckheere and Silverman (IEEE TAC, 1983).
@@ -50,25 +59,15 @@ def get_lqg_bt_transform(A, B, C):
     """
 
     # Compute solutions to algebraic ricatti equations
-    Rc = np.eye(B.shape[1])
-    Qc = C.T @ C
-    Pc = solve_are(A, B, Qc, Rc) # Called P in original paper
+    cntrl_R = np.eye(B.shape[1]) # the R-matrix for the controllability LQR objective
+    cntrl_Q = C.T @ C # the Q-matrix for the controllability LQR objective
+    P = solve_are(A, B, cntrl_Q, cntrl_R) # Also called P in original paper
 
-    Ro = np.eye(C.shape[0])
-    Qo = B @ B.T
-    Po = solve_are(A.T, C.T, Qo, Ro) # Called Pi in original paper
+    obsv_R = np.eye(C.shape[0]) # the R-matrix for the observability LQR
+    obsv_Q = B @ B.T # The Q-matrix for the observability LQR
+    Q = solve_are(A.T, C.T, obsv_Q, obsv_R) # Called Pi in original paper; note that this Q has nothing to do with the Q-matrix
 
-    Rx = np.linalg.cholesky(Pc, upper = True)
-    Ry = np.linalg.cholesky(Po, upper = False)
-    
-    U,S,VT = np.linalg.svd(Rx @ Ry)
-
-    T = Ry @ VT.T @ np.diag(1 / np.sqrt(S))
-    Tinv = np.diag(1 / np.sqrt(S)) @ U.T @ Rx
-
-    error = np.linalg.norm(T.T @ Pc @ T - Tinv @ Po @ Tinv.T, 2)
-
-    return T, Tinv, S, error
+    return get_petrov_galerkin_projection(P,Q,r)
 
 def get_minimal_realization(A, B, C, tol = 1e-9):
     """
