@@ -143,16 +143,8 @@ class Cobra:
         self.Y = np.hstack(cols) / np.sqrt(self.sg)
 
     def factorized_covariance_balancing(self):
-        print(self.Y.shape)
-        print(self.X.shape)
         U, S, Vt = np.linalg.svd(self.Y.T @ self.X, full_matrices=False)
         V = Vt.T
-        print("X")
-        print(self.X)
-        print("V")
-        print(V)
-        print("S")
-        print(S)
         Phi = self.X @ V[:, : self.r] @ np.diag(np.sqrt(1 / S[: self.r]))
         Psi = self.Y @ U[:, : self.r] @ np.diag(np.sqrt(1 / S[: self.r]))
         self.Phi = Phi

@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from hj_reachability import dynamics, sets
 
 
-class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
+class Dubin4dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
     def __init__(
         self,
         Phi,
@@ -26,13 +26,11 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         self.rank = self.Phi.shape[1]
 
         if control_space is None:
-            control_space = sets.Box(
-                jnp.array([self.uMin] * 2), jnp.array([self.uMax] * 2)
-            )
+            control_space = sets.Box(jnp.array([self.uMin]), jnp.array([self.uMax]))
         if disturbance_space is None:
             disturbance_space = sets.Box(
-                jnp.array([self.dMin] * 5),
-                jnp.array([self.dMax] * 5),
+                jnp.array([self.dMin] * 4),
+                jnp.array([self.dMax] * 4),
             )
         super().__init__(
             control_mode, disturbance_mode, control_space, disturbance_space
@@ -40,16 +38,13 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
 
     def open_loop_dynamics(self, state, time):
         xstate = self.Phi @ state.reshape([self.rank, 1])
-        x, y, theta, v, omega = xstate
+        x, y, theta, omega = xstate
         x = x[0]
         y = y[0]
         theta = theta[0]
-        v = v[0]
         omega = omega[0]
 
-        fx = jnp.array(
-            [[v * jnp.cos(theta)], [v * jnp.sin(theta)], [omega], [0.0], [0.0]]
-        )
+        fx = jnp.array([[jnp.cos(theta)], [jnp.sin(theta)], [omega], [0.0]])
 
         fz = self.Psi.T @ fx
 
@@ -62,7 +57,7 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         # y = y[0]
         # theta = theta[0]
 
-        gux = jnp.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+        gux = jnp.array([[0.0], [0.0], [0.0], [1.0]])
 
         guz = self.Psi.T @ gux
 
@@ -75,7 +70,7 @@ class Dubin5dReducedModel(dynamics.ControlAndDisturbanceAffineDynamics):
         # y = y[0]
         # theta = theta[0]
 
-        gdx = jnp.zeros((5, 5))
+        gdx = jnp.zeros((4, 4))
 
         gdz = self.Psi.T @ gdx
 

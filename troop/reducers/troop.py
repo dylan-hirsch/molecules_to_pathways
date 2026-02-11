@@ -765,7 +765,6 @@ class Trooper:
             T=self.times[-1],
             L=len(self.times),
             Y=self.Y,
-            yhat_fn=self.yhat_fn,
             z_fn=self.z_fn,
             A=self.A,
             atol=self.atol,
@@ -779,7 +778,6 @@ class Trooper:
         self.Psi = other.Psi
         self.A = other.A
         self.Y = other.Y
-        self.yhat_fn = other.yhat_fn
         self.z_fn = other.z_fn
         self.gradJ_Phi = other.gradJ_Phi
         self.gradJ_Psi = other.gradJ_Psi
